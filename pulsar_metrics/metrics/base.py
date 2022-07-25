@@ -1,3 +1,5 @@
+#  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
+
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -15,6 +17,7 @@ class MetricResults(BaseModel):
     data_id: str = None
     value: float = None
     status: bool = None
+    threshold: float = None
     period_start: datetime = None
     period_end: datetime = None
     timestamp: datetime = datetime.now()
