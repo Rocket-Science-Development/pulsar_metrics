@@ -91,3 +91,32 @@ class AbstractMetrics(ABC):
 
     def get_result(self):
         return self._result
+
+
+def CustomMetric(func):
+    """Decorator for custom metrics"""
+
+    def inner(name: str, data: pd.DataFrame) -> AbstractMetrics:
+        class CustomClass(AbstractMetrics):
+            def __init__(self, name, data):
+                super().__init__(name, data)
+
+            def evaluate(self, **kwargs):
+
+                self._result.type = MetricsType.custom.value
+                self._result.value = func(**kwargs)
+                self._result.threshold = kwargs.get("threshold", None)
+
+                if isinstance(self._result.threshold, (int, float)):
+                    status = self._result.value < self._result.threshold
+                else:
+                    status = None
+                self._result.type = MetricsType.custom.value
+
+                self._result.status = status
+
+                return self._result
+
+        return CustomClass(name=name, data=data)
+
+    return inner
