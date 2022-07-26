@@ -2,9 +2,19 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from enum import Enum
 
 import pandas as pd
 from pydantic import BaseModel, validator
+
+
+class MetricsType(Enum):
+
+    """Metrics type enumeration"""
+
+    performance = "performance"
+    drift = "drift"
+    custom = "custom"
 
 
 class MetricResults(BaseModel):
@@ -12,6 +22,7 @@ class MetricResults(BaseModel):
     """Data structure for the results of a metric"""
 
     name: str = None
+    type: MetricsType = None
     model_id: str = None
     model_version: int = None
     data_id: str = None
@@ -29,10 +40,12 @@ class MetricResults(BaseModel):
             raise ValueError("Current timestamp earlier than period end")
         return v
 
+    # TODO: validators for model id's, model's version, data_id, and metrics type
+
 
 class AbstractMetrics(ABC):
 
-    """Base abstract class for metrics
+    """Base abstract class for metricsa
 
     Parameters
     ----------
