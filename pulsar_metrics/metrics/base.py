@@ -61,23 +61,11 @@ class AbstractMetrics(ABC):
         # TODO: validation on the dataset ?
 
         try:
-            model_id = str(data["model_id"].unique()[0])
-            model_version = str(data["model_version"].unique()[0])
-            period_start = data.date.min()
-            period_end = data.date.max()
-
-            self._result = MetricResults(
-                name=self._name,
-                type=None,
-                model_id=model_id,
-                model_version=model_version,
-                value=None,
-                conf_int=None,
-                status=None,
-                threshold=None,
-                period_start=period_start,
-                period_end=period_end,
-            )
+            self._model_id = str(data["model_id"].unique()[0])
+            self._model_version = str(data["model_version"].unique()[0])
+            self._period_start = data.date.min()
+            self._period_end = data.date.max()
+            self._result = None
         except Exception as e:
             print(str(e))
 
@@ -92,6 +80,8 @@ class AbstractMetrics(ABC):
     def get_result(self):
         return self._result
 
+    # TODO: method to compare the metrics value to single value or interval thresholds
+
 
 def CustomMetric(func):
     """Decorator for custom metrics"""
@@ -103,17 +93,26 @@ def CustomMetric(func):
 
             def evaluate(self, **kwargs):
 
-                self._result.type = MetricsType.custom.value
-                self._result.value = func(**kwargs)
-                self._result.threshold = kwargs.get("threshold", None)
+                value = func(**kwargs)
+                threshold = kwargs.get("threshold", None)
 
-                if isinstance(self._result.threshold, (int, float)):
-                    status = self._result.value < self._result.threshold
+                if isinstance(threshold, (int, float)):
+                    status = value < threshold
                 else:
                     status = None
-                self._result.type = MetricsType.custom.value
 
-                self._result.status = status
+                self._result = MetricResults(
+                    name=self._name,
+                    type=MetricsType.custom.value,
+                    model_id=self._model_id,
+                    model_version=self._model_version,
+                    value=value,
+                    conf_int=None,
+                    status=status,
+                    threshold=threshold,
+                    period_start=self._period_start,
+                    period_end=self._period_end,
+                )
 
                 return self._result
 
