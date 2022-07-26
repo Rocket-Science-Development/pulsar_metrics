@@ -22,9 +22,9 @@ class MetricResults(BaseModel):
     """Data structure for the results of a metric"""
 
     name: str = None
-    type: MetricsType = None
+    type: str = None
     model_id: str = None
-    model_version: int = None
+    model_version: str = None
     data_id: str = None
     value: float = None
     status: bool = None
@@ -72,3 +72,6 @@ class AbstractMetrics(ABC):
     @abstractmethod
     def evaluate(self) -> MetricResults:
         raise NotImplementedError
+
+    def _check_metrics_name(self):
+        pass
