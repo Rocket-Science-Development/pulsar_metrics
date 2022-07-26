@@ -61,10 +61,23 @@ class AbstractMetrics(ABC):
         # TODO: validation on the dataset ?
 
         try:
-            self._model_id = str(data["model_id"].unique()[0])
-            self._model_version = str(data["model_version"].unique()[0])
-            self._period_start = data.date.min()
-            self._period_end = data.date.max()
+            model_id = str(data["model_id"].unique()[0])
+            model_version = str(data["model_version"].unique()[0])
+            period_start = data.date.min()
+            period_end = data.date.max()
+
+            self._result = MetricResults(
+                name=self._name,
+                type=None,
+                model_id=model_id,
+                model_version=model_version,
+                value=None,
+                conf_int=None,
+                status=None,
+                threshold=None,
+                period_start=period_start,
+                period_end=period_end,
+            )
         except Exception as e:
             print(str(e))
 
@@ -75,3 +88,6 @@ class AbstractMetrics(ABC):
 
     def _check_metrics_name(self):
         pass
+
+    def get_result(self):
+        return self._result
