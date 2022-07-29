@@ -47,7 +47,7 @@ class PerformanceMetricsFuncs(Enum):
 
 
 class PerformanceMetric(AbstractMetrics):
-    def __init__(self, name, data, **kwargs):
+    def __init__(self, name: str, data: pd.DataFrame, **kwargs):
 
         """Supercharged init method for performance metrics"""
 
@@ -64,7 +64,7 @@ class PerformanceMetric(AbstractMetrics):
         except Exception as e:
             print(str(e))
 
-    def _check_metrics_name(self, name):
+    def _check_metrics_name(self, name: str):
         if name not in PerformanceMetricsFuncs._member_names_:
             raise InvalidInput(
                 f"unknown metric key '{name}' given. " f"Should be one of {PerformanceMetricsFuncs._member_names_}."
@@ -111,6 +111,7 @@ class PerformanceMetric(AbstractMetrics):
                 model_id=self._model_id,
                 model_version=self._model_version,
                 value=value,
+                feature="prediction",
                 conf_int=conf_int,
                 status=status,
                 threshold=threshold,

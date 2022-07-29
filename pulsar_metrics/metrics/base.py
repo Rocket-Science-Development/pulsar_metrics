@@ -26,6 +26,7 @@ class MetricResults(BaseModel):
     model_id: str = None
     model_version: str = None
     data_id: str = None
+    feature: str = None
     value: float = None
     status: bool = None
     threshold: float = None
