@@ -46,15 +46,15 @@ class MetricResults(BaseModel):
 
 class AbstractMetrics(ABC):
 
-    """Base abstract class for metricsa
-
-    Parameters
-    ----------
-    - name: name of the metrics
-    - data: dataset from which the metric is calculated
-    """
+    """Base abstract class for metricsa"""
 
     def __init__(self, name: str, data: pd.DataFrame):
+
+        """Parameters
+        ----------
+        - name: name of the metrics
+        - data: dataset from which the metric is calculated
+        """
 
         self._name = name
         self._data = data.copy(deep=True)  # Not sure I want to attach the data as an attribute ...
