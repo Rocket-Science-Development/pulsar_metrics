@@ -4,6 +4,7 @@ from enum import Enum
 from functools import partial
 
 import numpy as np
+import pandas as pd
 from black import InvalidInput
 from sklearn.metrics import (
     accuracy_score,
