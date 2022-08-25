@@ -107,7 +107,7 @@ class PerformanceMetric(AbstractMetrics):
                 status = None
 
             self._result = MetricResults(
-                name=self._name,
+                metric_name=self._name,
                 type=MetricsType.performance.value,
                 model_id=self._model_id,
                 model_version=self._model_version,

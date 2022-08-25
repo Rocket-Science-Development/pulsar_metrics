@@ -83,7 +83,7 @@ class DriftMetric(AbstractMetrics):
                 status = None
 
             self._result = MetricResults(
-                name=self._name,
+                metric_name=self._name,
                 type=MetricsType.drift.value,
                 model_id=self._model_id,
                 model_version=self._model_version,
@@ -127,7 +127,7 @@ class DriftTestMetric(AbstractMetrics):
     def evaluate(
         self,
         reference: pd.Series,
-        alpha: float = None,
+        alpha: float = 0.05,
         **kwargs,
     ) -> MetricResults:
 
@@ -157,7 +157,7 @@ class DriftTestMetric(AbstractMetrics):
                 status = None
 
             self._result = MetricResults(
-                name=self._name,
+                metric_name=self._name,
                 type=MetricsType.drift.value,
                 model_id=self._model_id,
                 model_version=self._model_version,

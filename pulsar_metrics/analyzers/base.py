@@ -50,13 +50,13 @@ class AbstractAnalyzer(ABC):
     def run(self, data_ref: pd.DataFrame):
         raise NotImplementedError
 
-    def add_performance_metrics(self, metricsNames: list):
+    def add_performance_metrics(self, metrics_list: list):
         pass
 
-    def add_drift_metrics(self, metricsNames: list):
+    def add_drift_metrics(self, metrics_list: list):
         pass
 
-    def add_drift_test_metrics(self, metricsNames: list):
+    def add_drift_test_metrics(self, metrics_list: list):
         pass
 
     def get_result(self):
@@ -85,56 +85,56 @@ class Analyzer(AbstractAnalyzer):
 
         super().__init__(name, data, description)
 
-    def add_performance_metrics(self, metricsNames: list, **kwargs):
+    def add_performance_metrics(self, metrics_list: list, **kwargs):
 
         """Adding a list of performance metrics to the analyzer"""
 
         """Parameters
         ----------
-        - metricsNames: list of eprformance metrics names
+        - metrics_list: list of eprformance metrics names
         """
 
-        for metricName in metricsNames:
+        for metric_name in metrics_list:
             try:
-                metric = PerformanceMetric(name=metricName, data=self._data, **kwargs)
+                metric = PerformanceMetric(name=metric_name, data=self._data, **kwargs)
                 if hasattr(metric, "_y_true"):
                     self._metrics_list.append(metric)
-                    print("Performance metric '{}' added to the analyzer list".format(metricName))
+                    print("Performance metric '{}' added to the analyzer list".format(metric_name))
                 else:
                     raise ValueError(
                         "The dataset contains no ground truth for performance assessment. Metric '{}' was NOT added to the analyzer list".format(
-                            metricName
+                            metric_name
                         )
                     )
             except Exception as e:
                 print(str(e))
 
-    def add_drift_metrics(self, metricsNames: list, features_list: list = None):
+    def add_drift_metrics(self, metrics_list: list, features_list: list = None):
 
         """Adding a list of drift metrics to the analyzer"""
 
         """Parameters
         ----------
-        - metricsNames: list of drift metric names
+        - metrics_list: list of drift metric names
         """
 
         if features_list is None:
             features_list = self._data.select_dtypes("number").columns
 
-        for metricName in metricsNames:
+        for metric_name in metrics_list:
             for feature in features_list:
                 try:
-                    if metricName in DriftMetricsFuncs._member_names_:
-                        metric = DriftMetric(name=metricName, data=self._data, feature_name=feature)
-                    elif metricName in DriftTestMetricsFuncs._member_names_:
-                        metric = DriftTestMetric(name=metricName, data=self._data, feature_name=feature)
+                    if metric_name in DriftMetricsFuncs._member_names_:
+                        metric = DriftMetric(name=metric_name, data=self._data, feature_name=feature)
+                    elif metric_name in DriftTestMetricsFuncs._member_names_:
+                        metric = DriftTestMetric(name=metric_name, data=self._data, feature_name=feature)
                     else:
                         metric = None
-                        raise InvalidInput(f"unknown drift metric key '{metricName}' given. ")
+                        raise InvalidInput(f"unknown drift metric key '{metric_name}' given. ")
                     if metric is not None:
                         self._metrics_list.append(metric)
                         print(
-                            "Drift metric '{}' for feature '{}' added to the analyzer list".format(metricName, feature)
+                            "Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature)
                         )
                 except Exception as e:
                     print(str(e))

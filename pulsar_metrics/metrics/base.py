@@ -21,7 +21,7 @@ class MetricResults(BaseModel):
 
     """Data structure for the results of a metric"""
 
-    name: str = None
+    metric_name: str = None
     type: str = None
     model_id: str = None
     model_version: str = None
@@ -103,7 +103,7 @@ def CustomMetric(func):
                     status = None
 
                 self._result = MetricResults(
-                    name=self._name,
+                    metric_name=self._name,
                     type=MetricsType.custom.value,
                     model_id=self._model_id,
                     model_version=self._model_version,
