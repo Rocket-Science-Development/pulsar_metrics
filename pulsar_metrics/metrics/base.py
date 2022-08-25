@@ -32,10 +32,10 @@ class MetricResults(BaseModel):
     threshold: float = None
     period_start: datetime = None
     period_end: datetime = None
-    timestamp: datetime = datetime.now()
+    eval_timestamp: datetime = datetime.now()
     conf_int: list = None
 
-    @validator("timestamp", always=True)
+    @validator("eval_timestamp", always=True)
     def timestamp_later_than_period_end(cls, v, values, **kwargs):
         if v < values["period_end"]:
             raise ValueError("Current timestamp earlier than period end")
@@ -64,8 +64,8 @@ class AbstractMetrics(ABC):
         try:
             self._model_id = str(data["model_id"].unique()[0])
             self._model_version = str(data["model_version"].unique()[0])
-            self._period_start = data.date.min()
-            self._period_end = data.date.max()
+            self._period_start = data.pred_timestamp.min()
+            self._period_end = data.pred_timestamp.max()
             self._result = None
         except Exception as e:
             print(str(e))
