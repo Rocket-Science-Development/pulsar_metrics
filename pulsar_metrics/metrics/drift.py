@@ -16,10 +16,11 @@ from scipy.stats import (
 )
 
 from .base import AbstractMetrics, MetricResults, MetricsType
+from .utils import kl_divergence
 
 
 class DriftMetricsFuncs(Enum):
-    # kl = partial()
+    kl = partial(kl_divergence)
     wasserstein = partial(wasserstein_distance)
 
 
