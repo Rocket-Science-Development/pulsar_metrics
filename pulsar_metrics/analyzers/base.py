@@ -50,6 +50,9 @@ class AbstractAnalyzer(ABC):
     def run(self, data_ref: pd.DataFrame):
         raise NotImplementedError
 
+    def schedule(self):
+        pass
+
     def add_performance_metrics(self, metrics_list: list):
         pass
 
@@ -91,7 +94,7 @@ class Analyzer(AbstractAnalyzer):
 
         """Parameters
         ----------
-        - metrics_list: list of eprformance metrics names
+        - metrics_list: list of performance metrics names
         """
 
         for metric_name in metrics_list:
