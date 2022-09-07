@@ -36,6 +36,8 @@ class AbstractAnalyzer(ABC):
         # TODO: validation on the dataset ?
 
         try:
+            # TODO: better handling of date format
+            data["pred_timestamp"] = pd.to_datetime(data["pred_timestamp"])
             self._model_id = str(data["model_id"].unique()[0])
             self._model_version = str(data["model_version"].unique()[0])
             self._period_start = data.pred_timestamp.min()
