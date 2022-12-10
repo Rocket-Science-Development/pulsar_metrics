@@ -75,3 +75,35 @@ The result is returned through the `.get_result()` method of te metric object
 ```python
 driftTest.get_result()
 ```
+
+#### Using the analyzer
+When multiple metrics are required for different features, the analyzer allows one to calculate all the metrics at once.
+
+First, instantiate an analyzer object
+
+```python
+from pulsar_metrics.analyzers.base import Analyzer
+analysis = Analyzer(name = 'First Analyzer', description='My first Analyzer', data = data_new)
+```
+
+Then add the metrics of interest
+
+```python
+analysis.add_drift_metrics(metrics_list=['wasserstein', 'ttest', 'ks_2samp'], features_list=['Population', 'MedInc']);
+analysis.add_performance_metrics(metrics_list=['accuracy'], y_name = 'clf_target');
+```
+
+Then, you can run the analyzer while optionnally specfyings options for each metrics as a dictionnary for the `options` keywords
+
+```python
+analysis.run(data_ref = data_ref, options = {'ttest': {'alpha': 0.01, 'equal_var': False}})
+```
+
+It then possible to get the results of the analysis as a pandas dataFrame
+
+```python
+analysis.results_to_pandas()
+```
+
+![image](https://user-images.githubusercontent.com/105239615/206878435-b3bd2b8d-5196-45cd-9eb6-76d70e002c23.png)
+
