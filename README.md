@@ -11,5 +11,5 @@ Pulsar-metrics is an open-source Python library for evaluating and monitoring da
 There are two core objects in pulsar-metrics: metrics and analyzers
 
 #### Metrics
-
+The calculation of drift metrics
 #### Analyzers
