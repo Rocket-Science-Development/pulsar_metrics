@@ -1,6 +1,6 @@
 # pulsar-metrics
 
-Authors: abenlagra@rocketscience.one
+Author: abenlagra@rocketscience.one
 
 Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user.
 
