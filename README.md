@@ -16,4 +16,33 @@ An API to calculate single metrics for data and concept drift. Metrics results a
 ```
 MetricResults(metric_name=None, type='performance', model_id='model_1', model_version='1', data_id=None, feature=None, value=None, status=None, threshold=None, period_start=None, period_end=datetime.datetime(2022, 7, 1, 0, 0), eval_timestamp=datetime.datetime(2022, 9, 26, 10, 28, 27, 846122), conf_int=None)
 ```
+
+There are three types of metrics:
+
+- ***Data drift metrics*** for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
+* Kullback-Leibler divergence
+* Wasserstein distance
+* T-test for location drift
+* Mann-Whitney U test
+* Levene test for dispersion drift
+* Kolmogorov-Smirnov test
+* Cramer von Mises test
+* Chi-square test for categorical features
+
+- ***Performance metrics*** for te calculation of the performance of classification and regression models. In particular, the following metrics are implemented:
+
+* Accuracy
+* Precision
+* Recall
+* f1-score
+* Log loss
+* AUC
+* AUCPR
+* Brier Score
+* Mean squarred error (MSE)
+* Mean absolute error (MAE)
+* Mean absolute percentage error (MAPE)
+* R-square score
+
+- ***Custom metrics***. The user has the ability to define his own metric through the `@CustomMetric` decorator (see below for an example)
 #### Analyzers
