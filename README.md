@@ -20,7 +20,7 @@ MetricResults(metric_name=None, type='performance', model_id='model_1', model_ve
 There are three types of metrics:
 
 - ***Data drift metrics*** for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
-* Kullback-Leibler divergence
+* Kullback-Leibler (KL) divergence
 * Wasserstein distance
 * T-test for location drift
 * Mann-Whitney U test
@@ -28,6 +28,8 @@ There are three types of metrics:
 * Kolmogorov-Smirnov test
 * Cramer von Mises test
 * Chi-square test for categorical features
+
+Data drift metrics are implemented either in the `DriftMetric` (For the KL divergence and the Wasserstein distance) or `DriftTestMetric` classes.
 
 - ***Performance metrics*** for te calculation of the performance of classification and regression models. In particular, the following metrics are implemented:
 
@@ -44,5 +46,24 @@ There are three types of metrics:
 * Mean absolute percentage error (MAPE)
 * R-square score
 
+Performance metrics are implemented in the `PerformanceMetric` class.
+
 - ***Custom metrics***. The user has the ability to define his own metric through the `@CustomMetric` decorator (see below for an example)
 #### Analyzers
+
+An analyzer groups multiple metrics calculations in a single run. It allows to use which metrics to use and for which features.
+
+### Example usage
+
+To use the library, you need a reference dataset, typically the training dataset, and an analysis dataset which we want to compare with former.
+
+For a single metric, we first start by instantiating the appropriate metrics class by specifying the name of the metric ("ttest" in the example below)
+
+```python
+driftTest = DriftTestMetric(name = 'ttest', data = data_new, feature_name = feature_name)
+```
+Then we run the `.evaluate` method to calculate the metric
+
+```python
+driftTest.evaluate(alpha = 0.05, reference = data_ref[feature_name])
+```
