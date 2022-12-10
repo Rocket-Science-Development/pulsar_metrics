@@ -57,13 +57,21 @@ An analyzer groups multiple metrics calculations in a single run. It allows to u
 
 To use the library, you need a reference dataset, typically the training dataset, and an analysis dataset which we want to compare with former.
 
+
+#### Calculating a single metric
 For a single metric, we first start by instantiating the appropriate metrics class by specifying the name of the metric ("ttest" in the example below)
 
 ```python
 driftTest = DriftTestMetric(name = 'ttest', data = data_new, feature_name = feature_name)
 ```
-Then we run the `.evaluate` method to calculate the metric
+Then we run the `.evaluate()` method to calculate the metric
 
 ```python
 driftTest.evaluate(alpha = 0.05, reference = data_ref[feature_name])
+```
+
+The result is returned through the `.get_result()` method of te metric object
+
+```python
+driftTest.get_result()
 ```
