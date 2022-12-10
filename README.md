@@ -49,6 +49,8 @@ Data drift metrics are implemented either in the `DriftMetric` (For the KL diver
 Performance metrics are implemented in the `PerformanceMetric` class.
 
 - ***Custom metrics***. The user has the ability to define his own metric through the `@CustomMetric` decorator (see below for an example)
+
+All three types of metrics inherit the `AbstractMetrics` class.
 #### Analyzers
 
 An analyzer groups multiple metrics calculations in a single run. It allows to use which metrics to use and for which features.
@@ -62,6 +64,7 @@ To use the library, you need a reference dataset, typically the training dataset
 For a single metric, we first start by instantiating the appropriate metrics class by specifying the name of the metric ("ttest" in the example below)
 
 ```python
+from pulsar_metrics.metrics.drift import DriftTestMetric
 driftTest = DriftTestMetric(name = 'ttest', data = data_new, feature_name = feature_name)
 ```
 Then we run the `.evaluate()` method to calculate the metric
@@ -106,4 +109,14 @@ analysis.results_to_pandas()
 ```
 
 ![image](https://user-images.githubusercontent.com/105239615/206878435-b3bd2b8d-5196-45cd-9eb6-76d70e002c23.png)
+
+#### Creating a custom metric
+The `@CustomMetric` decorator allows to transform any function to the `AbstractMetrics` class
+
+```python
+from pulsar_metrics.metrics.base import CustomMetric
+@CustomMetric
+def test_custom(a, b, **kwargs):
+    return np.max(a - b)
+```
 
