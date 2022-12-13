@@ -1,0 +1,75 @@
+name: "Continuous Integration"
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "**"
+  pull_request:
+
+env:
+  PYTHON_VERSION: 3.9.13
+  POETRY_VERSION: 1.2.2
+
+jobs:
+  continuous-integration:
+    name: Run Continuous Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Poetry ${{ env.POETRY_VERSION }}
+        run: pipx install poetry==${{ env.POETRY_VERSION }}
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "poetry"
+
+      - name: Configure poetry
+        run: poetry config virtualenvs.in-project true
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Format code
+        id: fmt
+        run: |
+          poetry run python -m isort --check pulsar_data_collection/
+          poetry run python -m black --check pulsar_data_collection/
+        continue-on-error: true
+
+      - name: Lint code
+        id: lint
+        run: |
+          poetry run python -m flake8 pulsar_data_collection/
+        continue-on-error: true
+
+      - uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const output = `#### Format 🎨\`${{ steps.fmt.outcome }}\`
+            #### Linting 👕\`${{ steps.lint.outcome }}\`
+
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Pipeline Status
+        if: steps.fmt.outcome == 'failure' || steps.lint.outcome == 'failure'
+        run: exit 1
+
+      - name: Build and publish
+        if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
+        run: |
+          poetry config pypi-token.pypi ${{ secrets.PYPI_API_KEY }}
+          poetry publish --build

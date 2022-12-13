@@ -1,8 +1,14 @@
 [tool.poetry]
 name = "pulsar-metrics"
 version = "0.1.0"
-description = ""
-authors = ["Your Name <you@example.com>"]
+description = "Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user."
+authors = [
+  "Adel Benlagra <abenlagra@rocketscience.one>",
+  "Pulsar team <pulsar@data-rs.io>"
+  ]
+readme = "README.md"
+homepage = "https://github.com/Rocket-Science-Development/pulsar_metrics"
+license = "MIT"
 
 [tool.poetry.dependencies]
 python = "~3.9"
