@@ -30,7 +30,7 @@ flake8 = "^6.0.0"
 flake8-pyproject = "^1.2.2"
 
 [tool.black]
-line-length = 120
+line-length = 130
 target-version = ['py36', 'py37', 'py38', 'py39']
 include = '\.pyi?$'
 extend-exclude = '''
@@ -50,6 +50,15 @@ extend-exclude = '''
 
 [tool.isort]
 profile = "black"
+
+[tool.flake8]
+ignore = ['E231', 'E241']
+per-file-ignores = [
+    '__init__.py:F401',
+]
+max-line-length = 130
+count = true
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
