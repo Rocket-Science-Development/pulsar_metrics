@@ -5,7 +5,6 @@ def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: st
 
     if y_name not in data.columns:
         raise KeyError("The name of the realized target is not in the dataset")
-        valid = False
     elif pred_name not in data.columns:
         raise KeyError("The name of the realized target is not in the dataset")
     elif "date" not in data.columns:
