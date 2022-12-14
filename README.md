@@ -19,15 +19,19 @@ MetricResults(metric_name=None, type='performance', model_id='model_1', model_ve
 
 There are three types of metrics:
 
-##### Data drift metrics for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
-###### Kullback-Leibler (KL) divergence : This statistics measures how different is a probability distribution $P$ with respecvt to the reference probability distributiuon $Q$
-* Wasserstein distance
-* T-test for location drift
-* Mann-Whitney U test
-* Levene test for dispersion drift
-* Kolmogorov-Smirnov test
-* Cramer von Mises test
-* Chi-square test for categorical features
+##### - Data drift metrics for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
+###### [Kullback-Leibler (KL) divergence](https://en.wikipedia.org/wiki/Kullback–Leibler_divergence): This statistics measures how different is a probability distribution $P$ with respect to a reference probability distributiuon $Q$ (typically the probability distribution of the treaining features). More precisely, the KL divergence $D_{KL}(P||Q)$ is given by the fllowing formula
+$$D_{KL}(P||Q) = \sum_x P(x) \log \left ( \frac{P(x)}{Q(x)} \right )$$ $D_{KL}(P||Q)$ is always non-negative et is zero when the distributions are identical. Hence, a drift would be detected if its value is larger than a given threshold decided by the user.
+
+###### [Wasserstein distance](https://en.wikipedia.org/wiki/Wasserstein_metric) is a distance measure between two probability measures $Q$ and $P$. More precisely, the (first) Wassersetin distance $W_1(P, Q)$ is given by the formula
+$$W_1(P, Q) = \int_{-\infty}^{+\infty}|F_Q(x) - F_P(x)|dx$$
+where $F_Q$ is the cumulative distribution function of $Q$.
+###### T-test for location drift
+###### Mann-Whitney U test
+###### Levene test for dispersion drift
+###### Kolmogorov-Smirnov test
+###### Cramer von Mises test
+####### Chi-square test for categorical features
 
 Data drift metrics are implemented either in the `DriftMetric` (For the KL divergence and the Wasserstein distance) or `DriftTestMetric` classes.
 
