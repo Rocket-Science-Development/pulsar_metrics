@@ -19,8 +19,8 @@ MetricResults(metric_name=None, type='performance', model_id='model_1', model_ve
 
 There are three types of metrics:
 
-- ***Data drift metrics*** for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
-* Kullback-Leibler (KL) divergence
+##### Data drift metrics*** for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
+###### Kullback-Leibler (KL) divergence
 * Wasserstein distance
 * T-test for location drift
 * Mann-Whitney U test
