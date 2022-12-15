@@ -20,22 +20,37 @@ MetricResults(metric_name=None, type='performance', model_id='model_1', model_ve
 There are three types of metrics:
 
 ##### - Data drift metrics for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
-###### [Kullback-Leibler (KL) divergence](https://en.wikipedia.org/wiki/Kullback–Leibler_divergence): This statistics measures how different is a probability distribution $P$ with respect to a reference probability distributiuon $Q$ (typically the probability distribution of the treaining features). More precisely, the KL divergence $D_{KL}(P||Q)$ is given by the fllowing formula
-$$D_{KL}(P||Q) = \sum_x P(x) \log \left ( \frac{P(x)}{Q(x)} \right )$$ $D_{KL}(P||Q)$ is always non-negative et is zero when the distributions are identical. Hence, a drift would be detected if its value is larger than a given threshold decided by the user.
+###### [Kullback-Leibler (KL) divergence](https://en.wikipedia.org/wiki/Kullback–Leibler_divergence): This statistics measures how different is a probability distribution $P$ with respect to a reference probability distributiuon $Q$ (typically the probability distribution of the treaining features). More precisely, the KL divergence $D_{KL}(P||Q)$ is given by the fllowing formula $$D_{KL}(P||Q) = \sum_x P(x) \log \left ( \frac{P(x)}{Q(x)} \right )$$ $D_{KL}(P||Q)$ is always non-negative et is zero when the distributions are identical. Hence, a drift would be detected if its value is larger than a given threshold decided by the use
 
-###### [Wasserstein distance](https://en.wikipedia.org/wiki/Wasserstein_metric) is a distance measure between two probability measures $Q$ and $P$. More precisely, the (first) Wassersetin distance $W_1(P, Q)$ is given by the formula
-$$W_1(P, Q) = \int_{-\infty}^{+\infty}|F_Q(x) - F_P(x)|dx$$
-where $F_Q$ is the cumulative distribution function of $Q$.
-###### T-test for location drift
-###### Mann-Whitney U test
-###### Levene test for dispersion drift
-###### Kolmogorov-Smirnov test
-###### Cramer von Mises test
-####### Chi-square test for categorical features
+###### [Wasserstein distance](https://en.wikipedia.org/wiki/Wasserstein_metric) is a distance measure between two probability measures $Q$ and $P$. More precisely, the (first) Wassersetin distance $W_1(P, Q)$ is given by the formula $$W_1(P, Q) = \int_{-\infty}^{+\infty}|F_Q(x) - F_P(x)|dx$$ where $F_Q$ is the cumulative distribution function of $Q$. The metric is strctly non negative and a drift would be detected if its value is larger than a given threshold decided by the user.
 
-Data drift metrics are implemented either in the `DriftMetric` (For the KL divergence and the Wasserstein distance) or `DriftTestMetric` classes.
+###### [T-test](https://en.wikipedia.org/wiki/Student%27s_t-test) is a 2 samples paremetric statistical test to detect a difference in the means of the distributions of the two samples. More precisely, the test used is the [Welch test](https://en.wikipedia.org/wiki/Welch%27s_t-test) in which the 2 samples do not necessarily have the same variance or size. Since it is a statistical test, a location drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
 
-- ***Performance metrics*** for te calculation of the performance of classification and regression models. In particular, the following metrics are implemented:
+###### [Mann-Whitney U test](https://en.wikipedia.org/wiki/Mann–Whitney_U_test) for location shift is a 2 sample non-parametric statistical test to detect a difference in the medians of the distrbutions of two samples. Since it is a statistical test, a location drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
+
+###### [Levene's test](https://en.wikipedia.org/wiki/Levene%27s_test) is a 2 samples parametric statistical test to detect a difference in the variances of the distributions of the two samples. Since it is a statistical test, a dispersion drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
+
+###### [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test) is a 2 samples nonparametric statistical test to check whether two samples come from the same distribution. The test statistics is given by $$D_{n, m} = \sup_x |F_{1, n}(x) - F_{2, m}(x)|$$ where $F_{1, m}$ is the empirical cumulative distrbutin functin of sample 1 with size $n$. Since it is a statistical test, a dispersion drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
+
+###### [Cramer von Mises test](https://en.wikipedia.org/wiki/Cramér–von_Mises_criterion) is a 2 samples nonparametric statistical test to check whether two samples come from the same distribution. The test statistics is given by $$T_{n, m} = \frac{nm}{n+m} \int_{-\infty}^{+\infty} |F_{1, n}(x) - F_{2, m}(x)|^2 dF_{n+m}$$ where $F_{1, m}$ is the empirical cumulative distrbutin functin of sample 1 with size $n$ and $F_{n+m}$ is the emprirical distribution function of the two samples together. Since it is a statistical test, a distributios drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
+
+###### [Chi-square test](https://en.wikipedia.org/wiki/Chi-squared_test) to compare the distribution of a categorical feature in 2 samples by comparing the frequencies of unique modalities. Since it is a statistical test, a distribution drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
+
+Data drift metrics are implemented either in the `DriftMetric` (For the KL divergence and the Wasserstein distance) or `DriftTestMetric` classes. The choice of the metric is specified with the `name` parameter in the init method according to the following table
+
+|Metric|Name|
+|------|----|
+|Kullback-Leibler divergence|'kl'|
+|Wasserstein distance|'wasserstein'|
+|T-test|'ttest'|
+|Mann Whitney U test|'manwu'|
+|Leven's test|'levene'|
+|Kolmgorv-Smirnov|'ks_2samp'|
+|Cramer von Mises test|'CvM'|
+|Chi square test|'chi2'|
+
+
+##### - Performance metrics for te calculation of the performance of classification and regression models. In particular, the following metrics are implemented:
 
 * Accuracy
 * Precision
@@ -52,7 +67,7 @@ Data drift metrics are implemented either in the `DriftMetric` (For the KL diver
 
 Performance metrics are implemented in the `PerformanceMetric` class.
 
-- ***Custom metrics***. The user has the ability to define his own metric through the `@CustomMetric` decorator (see below for an example)
+##### - Custom metrics. The user has the ability to define his own metric through the `@CustomMetric` decorator (see below for an example)
 
 All three types of metrics inherit the `AbstractMetrics` class.
 #### Analyzers
