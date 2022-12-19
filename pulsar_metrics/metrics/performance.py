@@ -13,7 +13,6 @@ from sklearn.metrics import (
     f1_score,
     log_loss,
     mean_absolute_error,
-    mean_absolute_percentage_error,
     mean_squared_error,
     precision_score,
     r2_score,
@@ -28,7 +27,7 @@ class PerformanceMetricsFuncs(Enum):
 
     """Set of performance metrics functions"""
 
-    ## Classification Metrics
+    # Classification Metrics
     accuracy = partial(accuracy_score)
     precision = partial(precision_score)
     recall = partial(recall_score)
@@ -40,7 +39,7 @@ class PerformanceMetricsFuncs(Enum):
     aucpr = partial(average_precision_score)
     brier = partial(brier_score_loss)
 
-    ## Regression metrics
+    # Regression metrics
     mse = partial(mean_squared_error)
     mae = partial(mean_absolute_error)
     mape = partial(mean_absolute_error)
@@ -144,8 +143,6 @@ class PerformanceMetric(AbstractMetrics):
         for i in range(n_bootstrap):
             indices = rng.integers(low=0, high=n, size=n)
             values.append(
-                PerformanceMetricsFuncs[self._name].value(
-                    self._y_true.loc[indices], self._y_pred.loc[indices], **kwargs
-                )
+                PerformanceMetricsFuncs[self._name].value(self._y_true.loc[indices], self._y_pred.loc[indices], **kwargs)
             )
         return [np.quantile(values, alpha / 2), np.quantile(values, 1 - alpha / 2)]

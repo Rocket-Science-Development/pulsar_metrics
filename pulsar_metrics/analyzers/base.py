@@ -1,8 +1,6 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 
 from abc import ABC, abstractmethod
-from datetime import datetime
-from enum import Enum
 
 import pandas as pd
 from black import InvalidInput
@@ -107,9 +105,8 @@ class Analyzer(AbstractAnalyzer):
                     print("Performance metric '{}' added to the analyzer list".format(metric_name))
                 else:
                     raise ValueError(
-                        "The dataset contains no ground truth for performance assessment. Metric '{}' was NOT added to the analyzer list".format(
-                            metric_name
-                        )
+                        f"The dataset contains no ground truth for performance assessment. Metric '{metric_name}'"
+                        f"was NOT added to the analyzer list"
                     )
             except Exception as e:
                 print(str(e))
@@ -138,9 +135,7 @@ class Analyzer(AbstractAnalyzer):
                         raise InvalidInput(f"unknown drift metric key '{metric_name}' given. ")
                     if metric is not None:
                         self._metrics_list.append(metric)
-                        print(
-                            "Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature)
-                        )
+                        print("Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature))
                 except Exception as e:
                     print(str(e))
 

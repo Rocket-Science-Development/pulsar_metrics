@@ -52,9 +52,7 @@ class DriftMetric(AbstractMetrics):
 
     def _check_metrics_name(self, name: str):
         if name not in DriftMetricsFuncs._member_names_:
-            raise InvalidInput(
-                f"unknown metric key '{name}' given. " f"Should be one of {DriftMetricsFuncs._member_names_}."
-            )
+            raise InvalidInput(f"unknown metric key '{name}' given. " f"Should be one of {DriftMetricsFuncs._member_names_}.")
 
     def evaluate(
         self,
@@ -121,9 +119,7 @@ class DriftTestMetric(AbstractMetrics):
 
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
-            raise InvalidInput(
-                f"unknown metric key '{name}' given. " f"Should be one of {DriftTestMetricsFuncs._member_names_}."
-            )
+            raise InvalidInput(f"unknown metric key '{name}' given. " f"Should be one of {DriftTestMetricsFuncs._member_names_}.")
 
     def evaluate(
         self,
@@ -146,10 +142,10 @@ class DriftTestMetric(AbstractMetrics):
         try:
 
             if self._name != "CvM":
-                statistic, pvalue = DriftTestMetricsFuncs[self._name].value(self._column, reference, **kwargs)
+                _, pvalue = DriftTestMetricsFuncs[self._name].value(self._column, reference, **kwargs)
             else:
                 res = DriftTestMetricsFuncs[self._name].value(self._column, reference, **kwargs)
-                statistic = res.statistic
+                # statistic = res.statistic
                 pvalue = res.pvalue
 
             if isinstance(alpha, (int, float)):
