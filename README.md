@@ -120,3 +120,21 @@ def test_custom(a, b, **kwargs):
     return np.max(a - b)
 ```
 
+## About [PulsarML](https://pulsar.ml/)
+
+PulsarML is a project helping with monitoring your models and gain powerful insights into its performance.
+
+We released two Open Source packages :
+- [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection) :  lightweight python SDK enabling data collection of features, predictions and metadata from an ML model serving code/micro-service
+- [pulsar-metrics](https://github.com/Rocket-Science-Development/pulsar_metrics) : library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user.
+
+We also created [pulsar demo](https://github.com/Rocket-Science-Development/pulsar_demo) to display an example use-case showing how to leverage both packages to implement model monitoring and performance management.
+
+Want to interact with the community? join our [slack channel](https://pulsarml.slack.com)
+
+Powered by [Rocket Science Development](https://rocketscience.one/)
+
+## Contributing
+
+1. Fork this repository, develop, and test your changes
+2. Submit a pull request
