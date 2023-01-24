@@ -60,6 +60,7 @@ class DriftMetric(AbstractMetrics):
         self,
         reference: pd.Series,
         threshold: Union[list, float, int] = None,
+        upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
 
@@ -78,7 +79,6 @@ class DriftMetric(AbstractMetrics):
 
             value = DriftMetricsFuncs[self._name].value(self._column, reference, **kwargs)
 
-            upper_bound = kwargs.get("upper_bound", True)
             status = compare_to_threshold(value, threshold, upper_bound)
 
             self._result = MetricResults(

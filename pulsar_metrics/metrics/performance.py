@@ -79,6 +79,7 @@ class PerformanceMetric(AbstractMetrics):
         alpha: float = 0.05,
         seed: int = 123,
         threshold: Union[float, int, list] = None,
+        upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
 
@@ -102,7 +103,6 @@ class PerformanceMetric(AbstractMetrics):
             else:
                 conf_int = None
 
-            upper_bound = kwargs.get("upper_bound", True)
             status = compare_to_threshold(value, threshold, upper_bound)
 
             self._result = MetricResults(

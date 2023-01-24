@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
+from typing import Union
 
 import pandas as pd
 from pydantic import BaseModel, validator
@@ -31,7 +32,7 @@ class MetricResults(BaseModel):
     feature: str = None
     value: float = None
     status: bool = None
-    threshold: float = None
+    threshold: Union[float, int, list] = None
     period_start: datetime = None
     period_end: datetime = None
     eval_timestamp: datetime = datetime.now()
