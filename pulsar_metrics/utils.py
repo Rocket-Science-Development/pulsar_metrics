@@ -1,3 +1,5 @@
+from typing import Union
+
 import pandas as pd
 
 
@@ -14,3 +16,25 @@ def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: st
     else:
         print("The dataframe is validated !")
         return True
+
+
+def compare_to_threshold(value: float, threshold: Union[list, float, int], upper_bound=True):
+
+    status = None
+
+    try:
+        if isinstance(threshold, (float, int)):
+            if upper_bound:
+                status = value < threshold
+            else:
+                status = threshold < value
+        elif isinstance(threshold, list):
+            max_threshold = max(threshold)
+            min_threshold = min(threshold)
+            if (len(threshold) == 2) and min_threshold < max_threshold:
+                status = (value < max_threshold) and (value > min_threshold)
+            else:
+                raise ValueError("A vector threshold should have 2 disctinct elements only")
+        return status
+    except Exception as e:
+        print(str(e))

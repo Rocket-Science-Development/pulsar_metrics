@@ -7,6 +7,8 @@ from enum import Enum
 import pandas as pd
 from pydantic import BaseModel, validator
 
+from ..utils import compare_to_threshold
+
 
 class MetricsType(Enum):
 
@@ -98,11 +100,9 @@ def CustomMetric(func):
 
                 value = func(**kwargs)
                 threshold = kwargs.get("threshold", None)
+                upper_bound = kwargs.get("upper_bound", True)
 
-                if isinstance(threshold, (int, float)):
-                    status = value < threshold
-                else:
-                    status = None
+                status = compare_to_threshold(value, threshold, upper_bound)
 
                 self._result = MetricResults(
                     metric_name=self._name,
