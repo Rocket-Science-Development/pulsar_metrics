@@ -2,6 +2,7 @@
 
 from enum import Enum
 from functools import partial
+from typing import Union
 
 import pandas as pd
 from black import InvalidInput
@@ -15,6 +16,7 @@ from scipy.stats import (
     wasserstein_distance,
 )
 
+from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .utils import kl_divergence
 
@@ -57,7 +59,8 @@ class DriftMetric(AbstractMetrics):
     def evaluate(
         self,
         reference: pd.Series,
-        threshold: float = None,
+        threshold: Union[list, float, int] = None,
+        upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
 
@@ -76,10 +79,7 @@ class DriftMetric(AbstractMetrics):
 
             value = DriftMetricsFuncs[self._name].value(self._column, reference, **kwargs)
 
-            if isinstance(threshold, (int, float)):
-                status = value < threshold
-            else:
-                status = None
+            status = compare_to_threshold(value, threshold, upper_bound)
 
             self._result = MetricResults(
                 metric_name=self._name,
