@@ -1,12 +1,11 @@
 {
+    "python.linting.cwd": "${workspaceFolder}/.venv/bin/",
     "python.linting.enabled": true,
     "python.linting.pylintEnabled": false,
     "python.linting.flake8Enabled": true,
+    "python.linting.mypyEnabled": true,
+    "python.linting.banditEnabled": true,
     "python.formatting.provider": "black",
-    "python.isort.args": [
-        "--profile",
-        "black"
-    ],
     "[python]": {
         "editor.formatOnSave": true,
         "editor.codeActionsOnSave": {
