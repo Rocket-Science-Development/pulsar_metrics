@@ -18,11 +18,12 @@ from scipy.stats import (
 
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
-from .utils import kl_divergence
+from .utils import kl_divergence, psi
 
 
 class DriftMetricsFuncs(Enum):
     kl = partial(kl_divergence)
+    psi = partial(psi)
     wasserstein = partial(wasserstein_distance)
 
 
