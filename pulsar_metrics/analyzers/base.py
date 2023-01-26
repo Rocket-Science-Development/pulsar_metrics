@@ -4,14 +4,13 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 from black import InvalidInput
-
-from ..metrics.drift import (
+from metrics.drift import (
     DriftMetric,
     DriftMetricsFuncs,
     DriftTestMetric,
     DriftTestMetricsFuncs,
 )
-from ..metrics.performance import PerformanceMetric
+from metrics.performance import PerformanceMetric
 
 
 class AbstractAnalyzer(ABC):
