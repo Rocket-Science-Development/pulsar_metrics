@@ -2,6 +2,7 @@
 
 from enum import Enum
 from functools import partial
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
+from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
 
 
@@ -76,7 +78,8 @@ class PerformanceMetric(AbstractMetrics):
         n_bootstrap: int = 100,
         alpha: float = 0.05,
         seed: int = 123,
-        threshold: float = None,
+        threshold: Union[float, int, list] = None,
+        upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
 
@@ -100,10 +103,7 @@ class PerformanceMetric(AbstractMetrics):
             else:
                 conf_int = None
 
-            if isinstance(threshold, (int, float)):
-                status = value < threshold
-            else:
-                status = None
+            status = compare_to_threshold(value, threshold, upper_bound)
 
             self._result = MetricResults(
                 metric_name=self._name,
