@@ -6,49 +6,24 @@ from typing import Union
 
 import pandas as pd
 from black import InvalidInput
-from scipy.stats import (
-    chisquare,
-    cramervonmises_2samp,
-    ks_2samp,
-    levene,
-    mannwhitneyu,
-    ttest_ind,
-    wasserstein_distance,
-)
+
 
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
-from .utils import kl_divergence, psi
-
-
-class DriftMetricsFuncs(Enum):
-    kl = partial(kl_divergence)
-    psi = partial(psi)
-    wasserstein = partial(wasserstein_distance)
-
-
-class DriftTestMetricsFuncs(Enum):
-    ttest = partial(ttest_ind, equal_var=False)
-    manwu = partial(mannwhitneyu)
-    levene = partial(levene, center="mean")
-    bftest = partial(levene, center="median")
-    ks_2samp = partial(ks_2samp)
-    CvM = partial(cramervonmises_2samp)
-    chi2 = partial(chisquare)
-
+from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
 
 class DriftMetric(AbstractMetrics):
-    def __init__(self, name: str, data: pd.DataFrame, feature_name: str, **kwargs):
+    def __init__(self, metric_name: str, feature_name: str, **kwargs):
 
         """Supercharged init method for drift metrics"""
 
-        super().__init__(name, data)
+        super().__init__(metric_name)
 
-        self._check_metrics_name(name)
+        self._check_metrics_name(metric_name)
 
         try:
             self._feature_name = feature_name
-            self._column = data[feature_name]
+            #self._column = data[feature_name]
 
         except Exception as e:
             print(str(e))
@@ -59,7 +34,8 @@ class DriftMetric(AbstractMetrics):
 
     def evaluate(
         self,
-        reference: pd.Series,
+        current: pd.DataFrame,
+        reference: pd.DataFrame,
         threshold: Union[list, float, int] = None,
         upper_bound: bool = True,
         **kwargs,
@@ -78,22 +54,22 @@ class DriftMetric(AbstractMetrics):
 
         try:
 
-            value = DriftMetricsFuncs[self._name].value(self._column, reference, **kwargs)
+            value = DriftMetricsFuncs[self._name].value(current[self._feature_name], reference[self._feature_name], **kwargs)
 
             status = compare_to_threshold(value, threshold, upper_bound)
 
             self._result = MetricResults(
                 metric_name=self._name,
-                type=MetricsType.drift.value,
-                model_id=self._model_id,
-                model_version=self._model_version,
-                feature=self._feature_name,
-                value=value,
+                metric_type=MetricsType.drift.value,
+                #model_id=self._model_id,
+                #model_version=self._model_version,
+                feature_name=self._feature_name,
+                metric_value=value,
                 conf_int=None,
-                status=status,
+                drift_status=status,
                 threshold=threshold,
-                period_start=self._period_start,
-                period_end=self._period_end,
+                #period_start=self._period_start,
+                #period_end=self._period_end,
             )
 
             return self._result
@@ -103,17 +79,17 @@ class DriftMetric(AbstractMetrics):
 
 
 class DriftTestMetric(AbstractMetrics):
-    def __init__(self, name: str, data: pd.DataFrame, feature_name: str, **kwargs):
+    def __init__(self, metric_name: str, feature_name: str, **kwargs):
 
         """Supercharged init method for drift metrics"""
 
-        super().__init__(name, data)
+        super().__init__(metric_name)
 
-        self._check_metrics_name(name)
+        self._check_metrics_name(metric_name)
 
         try:
             self._feature_name = feature_name
-            self._column = data[feature_name]
+            #self._column = data[feature_name]
 
         except Exception as e:
             print(str(e))
@@ -124,7 +100,8 @@ class DriftTestMetric(AbstractMetrics):
 
     def evaluate(
         self,
-        reference: pd.Series,
+        current: pd.DataFrame,
+        reference: pd.DataFrame,
         alpha: float = 0.05,
         **kwargs,
     ) -> MetricResults:
@@ -143,9 +120,9 @@ class DriftTestMetric(AbstractMetrics):
         try:
 
             if self._name != "CvM":
-                _, pvalue = DriftTestMetricsFuncs[self._name].value(self._column, reference, **kwargs)
+                _, pvalue = DriftTestMetricsFuncs[self._name].value(current[self._feature_name], reference[self._feature_name], **kwargs)
             else:
-                res = DriftTestMetricsFuncs[self._name].value(self._column, reference, **kwargs)
+                res = DriftTestMetricsFuncs[self._name].value(current[self._feature_name], reference[self._feature_name], **kwargs)
                 # statistic = res.statistic
                 pvalue = res.pvalue
 
@@ -156,16 +133,16 @@ class DriftTestMetric(AbstractMetrics):
 
             self._result = MetricResults(
                 metric_name=self._name,
-                type=MetricsType.drift.value,
-                model_id=self._model_id,
-                model_version=self._model_version,
-                feature=self._feature_name,
-                value=pvalue,
+                metric_type=MetricsType.drift.value,
+                #model_id=self._model_id,
+                #model_version=self._model_version,
+                feature_name=self._feature_name,
+                metric_value=pvalue,
                 conf_int=None,
                 status=status,
                 threshold=alpha,
-                period_start=self._period_start,
-                period_end=self._period_end,
+                #period_start=self._period_start,
+                #period_end=self._period_end,
             )
 
             return self._result
