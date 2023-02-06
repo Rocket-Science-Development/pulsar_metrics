@@ -149,3 +149,39 @@ class DriftTestMetric(AbstractMetrics):
 
         except Exception as e:
             print(str(e))
+
+def CustomDriftMetric(func):
+    """Decorator for custom metrics"""
+
+    def inner(metric_name: str, feature_name:str) -> AbstractMetrics:
+        class CustomClass(AbstractMetrics):
+            def __init__(self, metric_name, feature_name):
+                super().__init__(metric_name)
+                self._feature_name = feature_name
+
+            def evaluate(self, current: pd.DataFrame, reference: pd.DataFrame, **kwargs):
+
+                value = func(current[self._feature_name], reference[self._feature_name], **kwargs)
+                threshold = kwargs.get("threshold", None)
+                upper_bound = kwargs.get("upper_bound", True)
+
+                status = compare_to_threshold(value, threshold, upper_bound)
+
+                self._result = MetricResults(
+                    metric_name=self._name,
+                    metric_type=MetricsType.custom.value,
+                    feature_name = self._feature_name,
+                    #model_id=self._model_id,
+                    #model_version=self._model_version,
+                    metric_value=value,
+                    conf_int=None,
+                    drift_status=status,
+                    threshold=threshold,
+                    #period_start=self._period_start,
+                    #period_end=self._period_end,
+                )
+
+                return self._result
+        return CustomClass(metric_name=metric_name, feature_name = feature_name)
+
+    return inner
