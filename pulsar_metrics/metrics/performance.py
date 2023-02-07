@@ -41,6 +41,7 @@ class PerformanceMetric(AbstractMetrics):
     def evaluate(
         self,
         current: pd.DataFrame,
+        reference: pd.DataFrame = None,
         bootstrap: bool = False,
         n_bootstrap: int = 100,
         alpha: float = 0.05,

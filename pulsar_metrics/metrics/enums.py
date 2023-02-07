@@ -36,6 +36,7 @@ class MetricsType(Enum):
     performance = "performance"
     drift = "drift"
     custom = "custom"
+    statistics = "statistics"
 
 class DriftMetricsFuncs(Enum):
     kl = partial(kl_divergence)

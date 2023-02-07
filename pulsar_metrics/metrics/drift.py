@@ -139,7 +139,7 @@ class DriftTestMetric(AbstractMetrics):
                 feature_name=self._feature_name,
                 metric_value=pvalue,
                 conf_int=None,
-                status=status,
+                drift_status=status,
                 threshold=alpha,
                 #period_start=self._period_start,
                 #period_end=self._period_end,

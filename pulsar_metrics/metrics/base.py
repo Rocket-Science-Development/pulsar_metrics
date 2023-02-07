@@ -9,7 +9,12 @@ import pandas as pd
 from pydantic import BaseModel, validator, Field
 
 from ..utils import compare_to_threshold
-from .enums import MetricsType, DriftMetricsFuncs, DriftTestMetricsFuncs, PerformanceMetricsFuncs
+from .enums import (
+    MetricsType,
+    DriftMetricsFuncs,
+    DriftTestMetricsFuncs,
+    PerformanceMetricsFuncs,
+)
 
 
 class MetricResults(BaseModel):
@@ -116,9 +121,9 @@ def CustomMetric(func):
                     metric_type=MetricsType.custom.value,
                     #model_id=self._model_id,
                     #model_version=self._model_version,
-                    value=value,
+                    metric_value=value,
                     conf_int=None,
-                    status=status,
+                    drift_status=status,
                     threshold=threshold,
                     #period_start=self._period_start,
                     #period_end=self._period_end,
