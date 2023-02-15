@@ -20,6 +20,7 @@ from ..metrics.enums import (
 )
 
 import warnings
+from tqdm import tqdm
 
 
 class AbstractAnalyzer(ABC):
@@ -186,7 +187,7 @@ class Analyzer(AbstractAnalyzer):
         else:
             try:
                 self._results = []
-                for metric in self._metrics_list:
+                for metric in tqdm(self._metrics_list):
                     kwargs = options.get(metric._name, {})
                     if isinstance(metric, (DriftMetric, DriftTestMetric)):
                         metric.evaluate(current = df_current, reference=df_reference, **kwargs)
