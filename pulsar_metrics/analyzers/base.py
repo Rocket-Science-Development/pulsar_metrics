@@ -132,6 +132,7 @@ class Analyzer(AbstractAnalyzer):
         - metrics_list: list of drift metric names
         """
 
+        # TODO: better handling of numeric vs categorical variables
         if features_list is None:
             features_list = self._data.select_dtypes("number").columns
 

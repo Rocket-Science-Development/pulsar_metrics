@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Sequence
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from black import InvalidInput
 from pandas.core.dtypes.common import is_numeric_dtype
-from scipy.stats import skew, kurtosis
+from scipy.stats import kurtosis, skew
 
 from .base import MetricResults
 
@@ -66,6 +66,8 @@ class FeatureSummary(FeatureSummaryAbstract):
             self._check_feature_name(current)
 
             if is_numeric_dtype(current[self._feature_name]):
+
+                # Iterating through the list of functions for numerical features
                 for name, func in _numeric_dict.items():
                     if reference is not None:
                         threshold = func(reference[self._feature_name])
@@ -79,7 +81,7 @@ class FeatureSummary(FeatureSummaryAbstract):
                         threshold=threshold,
                     )
                     self._result.append(statistics)
-                
+
                 # Adding quantiles
                 for percentile in percentiles:
                     if reference is not None:
@@ -88,13 +90,14 @@ class FeatureSummary(FeatureSummaryAbstract):
                         threshold = None
                     statistics = MetricResults(
                         metric_type="statistics",
-                        metric_name='P' + str(100*percentile),
+                        metric_name="P" + str(100 * percentile),
                         feature_name=self._feature_name,
                         metric_value=current[self._feature_name].quantile(percentile),
                         threshold=threshold,
                     )
                     self._result.append(statistics)
             else:
+                # For now only the most frequent category is calculated
                 category_top = current[self._feature_name].value_counts().index[0]
                 if reference is not None:
                     threshold = reference[self._feature_name].value_counts().index[0]
@@ -102,11 +105,13 @@ class FeatureSummary(FeatureSummaryAbstract):
                     threshold = None
                 statistics = MetricResults(
                     metric_type="statistics",
-                    metric_name='top',
+                    metric_name="top",
                     feature_name=self._feature_name,
                     metric_value=category_top,
                     threshold=threshold,
                 )
+
+            # Adding the count for all types of features
             count = MetricResults(
                 metric_type="statistics",
                 metric_name="count",
