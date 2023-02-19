@@ -1,11 +1,11 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 
 from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import Union, Optional
+# from datetime import datetime
+from typing import Union
 
-import pandas as pd
-from pydantic import BaseModel, validator, Field
+# import pandas as pd
+from pydantic import BaseModel, validator
 
 from ..utils import compare_to_threshold
 from .enums import (

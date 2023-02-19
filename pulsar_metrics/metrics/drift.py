@@ -1,5 +1,5 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
-from functools import partial
+# from functools import partial
 from typing import Union
 
 import pandas as pd
