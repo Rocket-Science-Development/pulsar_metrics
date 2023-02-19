@@ -1,7 +1,4 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
-
-from enum import Enum
-from functools import partial
 from typing import Union
 
 import numpy as np
@@ -10,8 +7,8 @@ from black import InvalidInput
 
 
 from ..utils import compare_to_threshold
-from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import PerformanceMetricsFuncs
+from .base import AbstractMetrics, MetricResults, MetricsType
 
 
 class PerformanceMetric(AbstractMetrics):
@@ -26,8 +23,8 @@ class PerformanceMetric(AbstractMetrics):
         try:
             self._y_name = kwargs.get("y_name", "y_true")
             self._pred_name = kwargs.get("pred_name", "y_pred")
-            #self._y_true = data[y_name]
-            #self._y_pred = data[pred_name]
+            # self._y_true = data[y_name]
+            # self._y_pred = data[pred_name]
 
         except Exception as e:
             print(str(e))
@@ -69,7 +66,7 @@ class PerformanceMetric(AbstractMetrics):
             value = PerformanceMetricsFuncs[self._name].value(current[self._y_name], current[self._pred_name], **kwargs)
 
             if bootstrap:
-                conf_int = self._bootstrap(current = current, n_bootstrap=n_bootstrap, alpha=alpha, seed=seed, **kwargs)
+                conf_int = self._bootstrap(current=current, n_bootstrap=n_bootstrap, alpha=alpha, seed=seed, **kwargs)
             else:
                 conf_int = None
 
@@ -78,15 +75,15 @@ class PerformanceMetric(AbstractMetrics):
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.performance.value,
-                #model_id=self._model_id,
-                #model_version=self._model_version,
+                # model_id=self._model_id,
+                # model_version=self._model_version,
                 metric_value=value,
                 feature_name="prediction",
                 conf_int=conf_int,
                 drift_status=status,
                 threshold=threshold,
-                #period_start=self._period_start,
-                #period_end=self._period_end,
+                # period_start=self._period_start,
+                # period_end=self._period_end,
             )
 
             return self._result
@@ -113,6 +110,8 @@ class PerformanceMetric(AbstractMetrics):
         for i in range(n_bootstrap):
             indices = rng.integers(low=0, high=n, size=n)
             values.append(
-                PerformanceMetricsFuncs[self._name].value(current.iloc[indices][self._y_name], current.iloc[indices][self._pred_name], **kwargs)
+                PerformanceMetricsFuncs[self._name].value(
+                    current.iloc[indices][self._y_name], current.iloc[indices][self._pred_name], **kwargs
+                )
             )
         return [np.quantile(values, alpha / 2), np.quantile(values, 1 - alpha / 2)]

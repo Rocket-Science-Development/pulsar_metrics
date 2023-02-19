@@ -1,6 +1,4 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
-
-from enum import Enum
 from functools import partial
 from typing import Union
 
@@ -9,8 +7,9 @@ from black import InvalidInput
 
 
 from ..utils import compare_to_threshold
-from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
+from .base import AbstractMetrics, MetricResults, MetricsType
+
 
 class DriftMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
@@ -23,7 +22,7 @@ class DriftMetric(AbstractMetrics):
 
         try:
             self._feature_name = feature_name
-            #self._column = data[feature_name]
+            # self._column = data[feature_name]
 
         except Exception as e:
             print(str(e))
@@ -61,15 +60,15 @@ class DriftMetric(AbstractMetrics):
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.drift.value,
-                #model_id=self._model_id,
-                #model_version=self._model_version,
+                # model_id=self._model_id,
+                # model_version=self._model_version,
                 feature_name=self._feature_name,
                 metric_value=value,
                 conf_int=None,
                 drift_status=status,
                 threshold=threshold,
-                #period_start=self._period_start,
-                #period_end=self._period_end,
+                # period_start=self._period_start,
+                # period_end=self._period_end,
             )
 
             return self._result
@@ -89,7 +88,7 @@ class DriftTestMetric(AbstractMetrics):
 
         try:
             self._feature_name = feature_name
-            #self._column = data[feature_name]
+            # self._column = data[feature_name]
 
         except Exception as e:
             print(str(e))
@@ -120,9 +119,13 @@ class DriftTestMetric(AbstractMetrics):
         try:
 
             if self._name != "CvM":
-                _, pvalue = DriftTestMetricsFuncs[self._name].value(current[self._feature_name], reference[self._feature_name], **kwargs)
+                _, pvalue = DriftTestMetricsFuncs[self._name].value(
+                    current[self._feature_name], reference[self._feature_name], **kwargs
+                )
             else:
-                res = DriftTestMetricsFuncs[self._name].value(current[self._feature_name], reference[self._feature_name], **kwargs)
+                res = DriftTestMetricsFuncs[self._name].value(
+                    current[self._feature_name], reference[self._feature_name], **kwargs
+                )
                 # statistic = res.statistic
                 pvalue = res.pvalue
 
@@ -134,15 +137,15 @@ class DriftTestMetric(AbstractMetrics):
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.drift.value,
-                #model_id=self._model_id,
-                #model_version=self._model_version,
+                # model_id=self._model_id,
+                # model_version=self._model_version,
                 feature_name=self._feature_name,
                 metric_value=pvalue,
                 conf_int=None,
                 drift_status=status,
                 threshold=alpha,
-                #period_start=self._period_start,
-                #period_end=self._period_end,
+                # period_start=self._period_start,
+                # period_end=self._period_end,
             )
 
             return self._result
@@ -150,10 +153,11 @@ class DriftTestMetric(AbstractMetrics):
         except Exception as e:
             print(str(e))
 
+
 def CustomDriftMetric(func):
     """Decorator for custom metrics"""
 
-    def inner(metric_name: str, feature_name:str) -> AbstractMetrics:
+    def inner(metric_name: str, feature_name: str) -> AbstractMetrics:
         class CustomClass(AbstractMetrics):
             def __init__(self, metric_name, feature_name):
                 super().__init__(metric_name)
@@ -170,18 +174,19 @@ def CustomDriftMetric(func):
                 self._result = MetricResults(
                     metric_name=self._name,
                     metric_type=MetricsType.custom.value,
-                    feature_name = self._feature_name,
-                    #model_id=self._model_id,
-                    #model_version=self._model_version,
+                    feature_name=self._feature_name,
+                    # model_id=self._model_id,
+                    # model_version=self._model_version,
                     metric_value=value,
                     conf_int=None,
                     drift_status=status,
                     threshold=threshold,
-                    #period_start=self._period_start,
-                    #period_end=self._period_end,
+                    # period_start=self._period_start,
+                    # period_end=self._period_end,
                 )
 
                 return self._result
-        return CustomClass(metric_name=metric_name, feature_name = feature_name)
+
+        return CustomClass(metric_name=metric_name, feature_name=feature_name)
 
     return inner

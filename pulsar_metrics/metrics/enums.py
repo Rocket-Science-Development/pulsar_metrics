@@ -29,6 +29,7 @@ from sklearn.metrics import (
 
 from .utils import kl_divergence, psi
 
+
 class MetricsType(Enum):
 
     """Metrics type enumeration"""
@@ -37,6 +38,7 @@ class MetricsType(Enum):
     drift = "drift"
     custom = "custom"
     statistics = "statistics"
+
 
 class DriftMetricsFuncs(Enum):
     kl = partial(kl_divergence)
@@ -52,6 +54,7 @@ class DriftTestMetricsFuncs(Enum):
     ks_2samp = partial(ks_2samp)
     CvM = partial(cramervonmises_2samp)
     chi2 = partial(chisquare)
+
 
 class PerformanceMetricsFuncs(Enum):
 

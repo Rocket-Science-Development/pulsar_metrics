@@ -6,20 +6,20 @@ import pandas as pd
 from datetime import datetime
 from black import InvalidInput
 
+from ..metrics.enums import (
+    #MetricsType,
+    DriftMetricsFuncs,
+    DriftTestMetricsFuncs,
+    PerformanceMetricsFuncs,
+)
+
 from ..metrics.drift import (
     DriftMetric,
     DriftTestMetric,
 )
 from ..metrics.performance import PerformanceMetric
 
-from ..metrics.enums import (
-    MetricsType,
-    DriftMetricsFuncs,
-    DriftTestMetricsFuncs,
-    PerformanceMetricsFuncs,
-)
-
-import warnings
+#import warnings
 from tqdm import tqdm
 
 
@@ -37,24 +37,20 @@ class AbstractAnalyzer(ABC):
         """
 
         self._name = name
-        #self._data = data.copy(deep=True)  # Not sure I want to attach the data as an attribute ...
+        # self._data = data.copy(deep=True)  # Not sure I want to attach the data as an attribute ...
         self._description = description
 
         # TODO: validation on the dataset ?
 
         try:
             # TODO: better handling of date format
-            #data["pred_timestamp"] = pd.to_datetime(data["pred_timestamp"])
-            self._model_id = model_id #str(data["model_id"].unique()[0])
-            self._model_version = model_version #str(data["model_version"].unique()[0])
-            #self._period_start = data.pred_timestamp.min()
-            #self._period_end = data.pred_timestamp.max()
+            # data["pred_timestamp"] = pd.to_datetime(data["pred_timestamp"])
+            self._model_id = model_id  # str(data["model_id"].unique()[0])
+            self._model_version = model_version  # str(data["model_version"].unique()[0])
+            # self._period_start = data.pred_timestamp.min()
+            # self._period_end = data.pred_timestamp.max()
             self._metrics_list = []
-            self._metadata = {'name': name,
-            'description': description,
-            'model_id': model_id,
-            'model_version': model_version
-            }
+            self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
             self._results = None
         except Exception as e:
             print(str(e))
@@ -91,7 +87,7 @@ class AbstractAnalyzer(ABC):
         else:
             results = pd.DataFrame.from_records([self._results[i].dict() for i in range(len(self._results))])
             for key, value in self._metadata.items():
-                if key not in ['name', 'description']:
+                if key not in ["name", "description"]:
                     results[key] = value
             return results
 
@@ -100,7 +96,7 @@ class AbstractAnalyzer(ABC):
 
 
 class Analyzer(AbstractAnalyzer):
-    def __init__(self, name: str, model_id: str, model_version:str, description: str = None, **kwargs):
+    def __init__(self, name: str, model_id: str, model_version: str, description: str = None, **kwargs):
 
         """Supercharged init method for performance metrics"""
 
@@ -163,26 +159,29 @@ class Analyzer(AbstractAnalyzer):
 
         """Running the analyzer from the list of metrics"""
 
-        df_reference = reference.loc[(reference.model_id == self._metadata['model_id'])
-        & ((reference.model_version == self._metadata['model_version']))]
+        df_reference = reference.loc[
+            (reference.model_id == self._metadata["model_id"]) & ((reference.model_version == self._metadata["model_version"]))
+        ]
 
-        df_current = current.loc[(current.model_id == self._metadata['model_id'])
-        & ((current.model_version == self._metadata['model_version']))]
+        df_current = current.loc[
+            (current.model_id == self._metadata["model_id"]) & ((current.model_version == self._metadata["model_version"]))
+        ]
 
         df_current["pred_timestamp"] = pd.to_datetime(df_current["pred_timestamp"])
 
-        self._metadata.update({
-        'period_start' : df_current.pred_timestamp.min(),
-        'period_end' : df_current.pred_timestamp.max(),
-        'eval_timestamp': datetime.now()
-        })
-
+        self._metadata.update(
+            {
+                "period_start": df_current.pred_timestamp.min(),
+                "period_end": df_current.pred_timestamp.max(),
+                "eval_timestamp": datetime.now(),
+            }
+        )
 
         if len(self._metrics_list) == 0:
             raise ValueError("The list of metrics for the analyzer is empty.")
-        elif (df_reference.shape[0] == 0):
+        elif df_reference.shape[0] == 0:
             raise ValueError("Wrong model metadata for reference dataset")
-        elif (df_current.shape[0] == 0):
+        elif df_current.shape[0] == 0:
             raise ValueError("Wrong model metadata for current dataset")
         else:
             try:
@@ -190,16 +189,16 @@ class Analyzer(AbstractAnalyzer):
                 for metric in tqdm(self._metrics_list):
                     kwargs = options.get(metric._name, {})
                     if isinstance(metric, (DriftMetric, DriftTestMetric)):
-                        metric.evaluate(current = df_current, reference=df_reference, **kwargs)
+                        metric.evaluate(current=df_current, reference=df_reference, **kwargs)
                     elif isinstance(metric, PerformanceMetric):
-                        if  (metric._y_name in df_current.columns) and (df_current[metric._y_name].isnull().sum() == 0):
-                            metric.evaluate(current = df_current, reference=df_reference, **kwargs)
+                        if (metric._y_name in df_current.columns) and (df_current[metric._y_name].isnull().sum() == 0):
+                            metric.evaluate(current=df_current, reference=df_reference, **kwargs)
                         else:
                             raise ValueError(
-                        f"The dataset contains no ground truth for performance assessment. Metric '{metric._name}'"
-                        f"was NOT calculated"
-                    )
-                            
+                                f"The dataset contains no ground truth for performance assessment. Metric '{metric._name}'"
+                                f"was NOT calculated"
+                            )
+
                     self._results.append(metric._result)
             except Exception as e:
                 print(str(e))

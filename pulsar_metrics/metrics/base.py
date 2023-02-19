@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import Enum
 from typing import Union, Optional
 
 import pandas as pd
@@ -28,12 +27,12 @@ class MetricResults(BaseModel):
     drift_status: bool = None
     threshold: Union[float, int, list] = None
     conf_int: list = None
-    #model_id: Optional[str]
-    #model_version: Optional[str]
-    #data_id: str = None
-    #period_start: datetime = None
-    #period_end: datetime = None
-    #eval_timestamp: datetime = datetime.now()
+    # model_id: Optional[str]
+    # model_version: Optional[str]
+    # data_id: str = None
+    # period_start: datetime = None
+    # period_end: datetime = None
+    # eval_timestamp: datetime = datetime.now()
 
     # @validator("eval_timestamp", always=True)
     # def timestamp_later_than_period_end(cls, v, values, **kwargs):
@@ -50,13 +49,13 @@ class MetricResults(BaseModel):
 
     @validator("metric_name", always=True)
     def metric_name_is_invalid(cls, v, values, **kwargs):
-        metric_names = (PerformanceMetricsFuncs._member_names_+
-        DriftMetricsFuncs._member_names_+
-        DriftTestMetricsFuncs._member_names_
+        metric_names = (
+            PerformanceMetricsFuncs._member_names_ + DriftMetricsFuncs._member_names_ + DriftTestMetricsFuncs._member_names_
         )
-        if (v not in metric_names) and (values['metric_type'] != MetricsType.custom.value) :
+        if (v not in metric_names) and (values["metric_type"] != MetricsType.custom.value):
             raise ValueError(f"Metric name {v} is invalid for {values['metric_type']} type")
         return v
+
 
 class AbstractMetrics(ABC):
 
@@ -71,7 +70,7 @@ class AbstractMetrics(ABC):
         """
 
         self._name = metric_name
-        #self._data = data.copy(deep=True)  # Not sure I want to attach the data as an attribute ...
+        # self._data = data.copy(deep=True)  # Not sure I want to attach the data as an attribute ...
 
         # TODO: validation on the dataset ?
 
@@ -119,14 +118,14 @@ def CustomMetric(func):
                 self._result = MetricResults(
                     metric_name=self._name,
                     metric_type=MetricsType.custom.value,
-                    #model_id=self._model_id,
-                    #model_version=self._model_version,
+                    # model_id=self._model_id,
+                    # model_version=self._model_version,
                     metric_value=value,
                     conf_int=None,
                     drift_status=status,
                     threshold=threshold,
-                    #period_start=self._period_start,
-                    #period_end=self._period_end,
+                    # period_start=self._period_start,
+                    # period_end=self._period_end,
                 )
 
                 return self._result
