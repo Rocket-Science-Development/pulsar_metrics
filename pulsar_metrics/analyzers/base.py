@@ -16,6 +16,7 @@ from ..metrics.enums import (  # MetricsType,
     PerformanceMetricsFuncs,
 )
 from ..metrics.performance import PerformanceMetric
+from ..metrics.statistics import FeatureSummary
 
 
 class AbstractAnalyzer(ABC):
@@ -181,6 +182,11 @@ class Analyzer(AbstractAnalyzer):
         else:
             try:
                 self._results = []
+                # Summary statistics
+                for feature_name in current.columns:
+                    statistics = FeatureSummary(feature_name=feature_name)
+                    statistics.evaluate(current, reference)
+                    self._results += statistics._result
                 for metric in tqdm(self._metrics_list):
                     kwargs = options.get(metric._name, {})
                     if isinstance(metric, (DriftMetric, DriftTestMetric)):

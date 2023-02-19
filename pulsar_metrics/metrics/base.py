@@ -24,9 +24,9 @@ class MetricResults(BaseModel):
     metric_type: str
     metric_name: str
     feature_name: str = None
-    metric_value: float = None
+    metric_value: Union[float, int, str] = None
     drift_status: bool = None
-    threshold: Union[float, int, list] = None
+    threshold: Union[float, int, str, list] = None
     conf_int: list = None
     # model_id: Optional[str]
     # model_version: Optional[str]
@@ -53,7 +53,7 @@ class MetricResults(BaseModel):
         metric_names = (
             PerformanceMetricsFuncs._member_names_ + DriftMetricsFuncs._member_names_ + DriftTestMetricsFuncs._member_names_
         )
-        if (v not in metric_names) and (values["metric_type"] != MetricsType.custom.value):
+        if (v not in metric_names) and (values["metric_type"] not in [MetricsType.custom.value, MetricsType.statistics.value]):
             raise ValueError(f"Metric name {v} is invalid for {values['metric_type']} type")
         return v
 
