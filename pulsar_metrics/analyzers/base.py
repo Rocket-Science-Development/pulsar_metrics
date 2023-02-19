@@ -183,7 +183,7 @@ class Analyzer(AbstractAnalyzer):
         else:
             try:
                 self._results = []
-                # Summary statistics
+                # Summary statistics. is it better to do it on all features by default or allow the user to chose which features
                 for feature_name in current.columns:
                     statistics = FeatureSummary(feature_name=feature_name)
                     statistics.evaluate(current, reference)
