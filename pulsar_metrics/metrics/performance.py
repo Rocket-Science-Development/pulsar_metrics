@@ -5,10 +5,9 @@ import numpy as np
 import pandas as pd
 from black import InvalidInput
 
-
 from ..utils import compare_to_threshold
-from .enums import PerformanceMetricsFuncs
 from .base import AbstractMetrics, MetricResults, MetricsType
+from .enums import PerformanceMetricsFuncs
 
 
 class PerformanceMetric(AbstractMetrics):

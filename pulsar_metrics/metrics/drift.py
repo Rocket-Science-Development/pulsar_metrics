@@ -5,10 +5,9 @@ from typing import Union
 import pandas as pd
 from black import InvalidInput
 
-
 from ..utils import compare_to_threshold
-from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
 from .base import AbstractMetrics, MetricResults, MetricsType
+from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
 
 
 class DriftMetric(AbstractMetrics):

@@ -1,6 +1,7 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 
 from abc import ABC, abstractmethod
+
 # from datetime import datetime
 from typing import Union
 
@@ -9,9 +10,9 @@ from pydantic import BaseModel, validator
 
 from ..utils import compare_to_threshold
 from .enums import (
-    MetricsType,
     DriftMetricsFuncs,
     DriftTestMetricsFuncs,
+    MetricsType,
     PerformanceMetricsFuncs,
 )
 

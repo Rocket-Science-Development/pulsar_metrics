@@ -1,26 +1,21 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 import pandas as pd
-from datetime import datetime
 from black import InvalidInput
 
-from ..metrics.enums import (
-    # MetricsType,
+# mport warnings
+from tqdm import tqdm
+
+from ..metrics.drift import DriftMetric, DriftTestMetric
+from ..metrics.enums import (  # MetricsType,
     DriftMetricsFuncs,
     DriftTestMetricsFuncs,
     PerformanceMetricsFuncs,
 )
-
-from ..metrics.drift import (
-    DriftMetric,
-    DriftTestMetric,
-)
 from ..metrics.performance import PerformanceMetric
-
-# mport warnings
-from tqdm import tqdm
 
 
 class AbstractAnalyzer(ABC):
