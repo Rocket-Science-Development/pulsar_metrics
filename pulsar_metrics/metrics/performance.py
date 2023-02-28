@@ -1,79 +1,43 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
-
-from enum import Enum
-from functools import partial
 from typing import Union
 
 import numpy as np
 import pandas as pd
 from black import InvalidInput
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    brier_score_loss,
-    f1_score,
-    log_loss,
-    mean_absolute_error,
-    mean_squared_error,
-    precision_score,
-    r2_score,
-    recall_score,
-    roc_auc_score,
-)
 
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
-
-
-class PerformanceMetricsFuncs(Enum):
-
-    """Set of performance metrics functions"""
-
-    # Classification Metrics
-    accuracy = partial(accuracy_score)
-    precision = partial(precision_score)
-    recall = partial(recall_score)
-    f1 = partial(f1_score)
-    log_loss = partial(log_loss)
-    # Area under ROC Curve
-    auc = partial(roc_auc_score)
-    # Area under PR Curve
-    aucpr = partial(average_precision_score)
-    brier = partial(brier_score_loss)
-
-    # Regression metrics
-    mse = partial(mean_squared_error)
-    mae = partial(mean_absolute_error)
-    mape = partial(mean_absolute_error)
-    r2 = partial(r2_score)
+from .enums import PerformanceMetricsFuncs
 
 
 class PerformanceMetric(AbstractMetrics):
-    def __init__(self, name: str, data: pd.DataFrame, **kwargs):
+    def __init__(self, metric_name: str, **kwargs):
 
         """Supercharged init method for performance metrics"""
 
-        super().__init__(name, data)
+        super().__init__(metric_name)
 
-        self._check_metrics_name(name)
+        self._check_metrics_name(metric_name)
 
         try:
-            y_name = kwargs.get("y_name", "y_true")
-            pred_name = kwargs.get("pred_name", "y_pred")
-            self._y_true = data[y_name]
-            self._y_pred = data[pred_name]
+            self._y_name = kwargs.get("y_name", "y_true")
+            self._pred_name = kwargs.get("pred_name", "y_pred")
+            # self._y_true = data[y_name]
+            # self._y_pred = data[pred_name]
 
         except Exception as e:
             print(str(e))
 
-    def _check_metrics_name(self, name: str):
-        if name not in PerformanceMetricsFuncs._member_names_:
+    def _check_metrics_name(self, metric_name: str):
+        if metric_name not in PerformanceMetricsFuncs._member_names_:
             raise InvalidInput(
-                f"unknown metric key '{name}' given. " f"Should be one of {PerformanceMetricsFuncs._member_names_}."
+                f"unknown metric key '{metric_name}' given. " f"Should be one of {PerformanceMetricsFuncs._member_names_}."
             )
 
     def evaluate(
         self,
+        current: pd.DataFrame,
+        reference: pd.DataFrame = None,
         bootstrap: bool = False,
         n_bootstrap: int = 100,
         alpha: float = 0.05,
@@ -96,10 +60,12 @@ class PerformanceMetric(AbstractMetrics):
 
         try:
 
-            value = PerformanceMetricsFuncs[self._name].value(self._y_true, self._y_pred, **kwargs)
+            self._n_sample = current.shape[0]
+
+            value = PerformanceMetricsFuncs[self._name].value(current[self._y_name], current[self._pred_name], **kwargs)
 
             if bootstrap:
-                conf_int = self._bootstrap(n_bootstrap=n_bootstrap, alpha=alpha, seed=seed, **kwargs)
+                conf_int = self._bootstrap(current=current, n_bootstrap=n_bootstrap, alpha=alpha, seed=seed, **kwargs)
             else:
                 conf_int = None
 
@@ -107,16 +73,16 @@ class PerformanceMetric(AbstractMetrics):
 
             self._result = MetricResults(
                 metric_name=self._name,
-                type=MetricsType.performance.value,
-                model_id=self._model_id,
-                model_version=self._model_version,
-                value=value,
-                feature="prediction",
+                metric_type=MetricsType.performance.value,
+                # model_id=self._model_id,
+                # model_version=self._model_version,
+                metric_value=value,
+                feature_name="prediction",
                 conf_int=conf_int,
-                status=status,
+                drift_status=status,
                 threshold=threshold,
-                period_start=self._period_start,
-                period_end=self._period_end,
+                # period_start=self._period_start,
+                # period_end=self._period_end,
             )
 
             return self._result
@@ -124,7 +90,7 @@ class PerformanceMetric(AbstractMetrics):
         except Exception as e:
             print(str(e))
 
-    def _bootstrap(self, n_bootstrap: int = 100, seed: int = 123, alpha: float = 0.05, **kwargs):
+    def _bootstrap(self, current: pd.DataFrame, n_bootstrap: int = 100, seed: int = 123, alpha: float = 0.05, **kwargs):
 
         """Function to bootstrap the metrics for confidence interval evaluation
 
@@ -136,13 +102,15 @@ class PerformanceMetric(AbstractMetrics):
         """
 
         rng = np.random.default_rng(seed)
-        n = self._data.shape[0]
+        n = self._n_sample
 
         values = []
 
         for i in range(n_bootstrap):
             indices = rng.integers(low=0, high=n, size=n)
             values.append(
-                PerformanceMetricsFuncs[self._name].value(self._y_true.loc[indices], self._y_pred.loc[indices], **kwargs)
+                PerformanceMetricsFuncs[self._name].value(
+                    current.iloc[indices][self._y_name], current.iloc[indices][self._pred_name], **kwargs
+                )
             )
         return [np.quantile(values, alpha / 2), np.quantile(values, 1 - alpha / 2)]
