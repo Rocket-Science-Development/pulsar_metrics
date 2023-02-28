@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pulsar-metrics"
-version = "0.1.2"
+version = "0.1.3"
 description = "Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user."
 authors = [
   "Adel Benlagra <abenlagra@rocketscience.one>",
