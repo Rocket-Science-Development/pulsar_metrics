@@ -25,7 +25,6 @@ class AbstractAnalyzer(ABC):
     """Base abstract class for analyzers"""
 
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None):
-
         """Parameters
         ----------
         - name: name of the analyzer
@@ -93,9 +92,7 @@ class AbstractAnalyzer(ABC):
 
 
 class Analyzer(AbstractAnalyzer):
-
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None, **kwargs):
-
         """Supercharged init method for performance metrics"""
 
         super().__init__(name, model_id, model_version, description)
@@ -154,9 +151,7 @@ class Analyzer(AbstractAnalyzer):
                 except Exception as e:
                     print(str(e))
 
-
     def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
-
         """Running the analyzer from the list of metrics"""
 
         df_reference = reference.loc[
@@ -174,6 +169,7 @@ class Analyzer(AbstractAnalyzer):
                 "period_start": df_current.pred_timestamp.min(),
                 "period_end": df_current.pred_timestamp.max(),
                 "eval_timestamp": datetime.now(),
+                "options": options,
             }
         )
 
