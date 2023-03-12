@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 
 import pandas as pd
+import numpy as np
 from black import InvalidInput
 
 from ..metrics.drift import (
@@ -19,7 +20,6 @@ class AbstractAnalyzer(ABC):
     """Base abstract class for analyzers"""
 
     def __init__(self, name: str, data: pd.DataFrame, description: str = None):
-
         """Parameters
         ----------
         - name: name of the analyzer
@@ -83,13 +83,11 @@ class AbstractAnalyzer(ABC):
 
 class Analyzer(AbstractAnalyzer):
     def __init__(self, name: str, data: pd.DataFrame, description: str = None, **kwargs):
-
         """Supercharged init method for performance metrics"""
 
         super().__init__(name, data, description)
 
     def add_performance_metrics(self, metrics_list: list, **kwargs):
-
         """Adding a list of performance metrics to the analyzer"""
 
         """Parameters
@@ -112,7 +110,6 @@ class Analyzer(AbstractAnalyzer):
                 print(str(e))
 
     def add_drift_metrics(self, metrics_list: list, features_list: list = None):
-
         """Adding a list of drift metrics to the analyzer"""
 
         """Parameters
@@ -121,7 +118,9 @@ class Analyzer(AbstractAnalyzer):
         """
 
         if features_list is None:
-            features_list = self._data.select_dtypes("number").columns
+            features_list = np.setdiff1d(
+                self._data.select_dtypes("number").columns, ["y_true", "y_pred", "y_pred_proba", "model_id", "model_version"]
+            )
 
         for metric_name in metrics_list:
             for feature in features_list:
@@ -140,9 +139,9 @@ class Analyzer(AbstractAnalyzer):
                     print(str(e))
 
     def run(self, data_ref: pd.DataFrame, options: dict = {}):
-
         """Running the analyzer from the list of metrics"""
 
+        self._options = options
         if len(self._metrics_list) == 0:
             raise ValueError("The list of metrics for the analyzer is empty.")
         else:
@@ -151,7 +150,7 @@ class Analyzer(AbstractAnalyzer):
                 for metric in self._metrics_list:
                     kwargs = options.get(metric._name, {})
                     if isinstance(metric, (DriftMetric, DriftTestMetric)):
-                        metric.evaluate(reference=data_ref[metric._feature_name], **kwargs)
+                        metric.evaluate(reference=data_ref, **kwargs)
                     elif isinstance(metric, PerformanceMetric):
                         metric.evaluate(**kwargs)
 

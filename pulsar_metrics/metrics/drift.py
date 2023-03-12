@@ -18,13 +18,14 @@ from scipy.stats import (
 
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
-from .utils import kl_divergence, psi
+from .utils import kl_divergence, psi, mmd
 
 
 class DriftMetricsFuncs(Enum):
     kl = partial(kl_divergence)
     psi = partial(psi)
     wasserstein = partial(wasserstein_distance)
+    mmd = partial(mmd)
 
 
 class DriftTestMetricsFuncs(Enum):
@@ -48,7 +49,10 @@ class DriftMetric(AbstractMetrics):
 
         try:
             self._feature_name = feature_name
-            self._column = data[feature_name]
+            if feature_name is None:
+                self._column = data
+            else:
+                self._column = data[feature_name]
 
         except Exception as e:
             print(str(e))
@@ -78,7 +82,12 @@ class DriftMetric(AbstractMetrics):
 
         try:
 
-            value = DriftMetricsFuncs[self._name].value(self._column, reference, **kwargs)
+            if self._feature_name is not None:
+                ref_column = reference[self._feature_name]
+            else:
+                ref_column = reference
+
+            value = DriftMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
 
             status = compare_to_threshold(value, threshold, upper_bound)
 
@@ -142,10 +151,15 @@ class DriftTestMetric(AbstractMetrics):
 
         try:
 
-            if self._name != "CvM":
-                _, pvalue = DriftTestMetricsFuncs[self._name].value(self._column, reference, **kwargs)
+            if self._feature_name is not None:
+                ref_column = reference[self._feature_name]
             else:
-                res = DriftTestMetricsFuncs[self._name].value(self._column, reference, **kwargs)
+                ref_column = reference
+
+            if self._name != "CvM":
+                _, pvalue = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
+            else:
+                res = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
                 # statistic = res.statistic
                 pvalue = res.pvalue
 

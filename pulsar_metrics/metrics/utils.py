@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from scipy.stats import entropy
+from sklearn.metrics.pairwise import pairwise_kernels
 
 
 def get_population_percentages(new: pd.Series, reference: pd.Series, binned: bool = False):
@@ -61,3 +62,23 @@ def psi(new: pd.Series, reference: pd.Series, binned: bool = False):
     psi = ((percents["new"] - percents["ref"]) * np.log(percents["new"] / percents["ref"])).sum()
 
     return psi
+
+def mmd(new: pd.DataFrame, reference: pd.DataFrame, kernel='linear', **kwargs):
+    """
+    Calculates the Maximum Mean Discrepency between two samples
+    """
+
+    if isinstance(new, pd.Series):
+        new = new.to_frame()
+
+    if isinstance(reference, pd.Series):
+        reference = reference.to_frame()
+
+    new = new.select_dtypes('number')
+    reference = reference.select_dtypes('number')
+
+    kxx = pairwise_kernels(new, new, metric=kernel, **kwargs)
+    kyy = pairwise_kernels(reference, reference, metric=kernel, **kwargs)
+    kxy = pairwise_kernels(new, reference, metric=kernel, **kwargs)
+
+    return kxx.mean() + kyy.mean() - 2*kxy.mean()
