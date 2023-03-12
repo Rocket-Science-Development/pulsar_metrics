@@ -26,7 +26,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from .utils import kl_divergence, psi, mmd
+from .utils import kl_divergence, mmd, psi
 
 
 class MetricsType(Enum):

@@ -8,7 +8,6 @@ from sklearn.metrics.pairwise import pairwise_kernels
 
 
 def get_population_percentages(new: pd.Series, reference: pd.Series, binned: bool = False):
-
     """
     The function returns the population percentages of the two pandas series
 
@@ -39,7 +38,6 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
 
 
 def kl_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
-
     """
     Calculates the Kullback-Leibler divergence
     """
@@ -52,7 +50,6 @@ def kl_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
 
 
 def psi(new: pd.Series, reference: pd.Series, binned: bool = False):
-
     """
     Calculates the Population Stability Index (PSI)
     """
@@ -63,7 +60,8 @@ def psi(new: pd.Series, reference: pd.Series, binned: bool = False):
 
     return psi
 
-def mmd(new: pd.DataFrame, reference: pd.DataFrame, kernel='linear', **kwargs):
+
+def mmd(new: pd.DataFrame, reference: pd.DataFrame, kernel="linear", **kwargs):
     """
     Calculates the Maximum Mean Discrepency between two samples
     """
@@ -74,11 +72,11 @@ def mmd(new: pd.DataFrame, reference: pd.DataFrame, kernel='linear', **kwargs):
     if isinstance(reference, pd.Series):
         reference = reference.to_frame()
 
-    new = new.select_dtypes('number')
-    reference = reference.select_dtypes('number')
+    new = new.select_dtypes("number")
+    reference = reference.select_dtypes("number")
 
     kxx = pairwise_kernels(new, new, metric=kernel, **kwargs)
     kyy = pairwise_kernels(reference, reference, metric=kernel, **kwargs)
     kxy = pairwise_kernels(new, reference, metric=kernel, **kwargs)
 
-    return kxx.mean() + kyy.mean() - 2*kxy.mean()
+    return kxx.mean() + kyy.mean() - 2 * kxy.mean()
