@@ -37,7 +37,7 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
         print(str(e))
 
 
-def kl_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
+def kullback_leibler_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
     Calculates the Kullback-Leibler divergence
     """
@@ -49,7 +49,7 @@ def kl_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
     return kl_div
 
 
-def psi(new: pd.Series, reference: pd.Series, binned: bool = False):
+def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
     Calculates the Population Stability Index (PSI)
     """
@@ -61,7 +61,7 @@ def psi(new: pd.Series, reference: pd.Series, binned: bool = False):
     return psi
 
 
-def mmd(new: pd.DataFrame, reference: pd.DataFrame, kernel="linear", **kwargs):
+def max_mean_discrepency(new: pd.DataFrame, reference: pd.DataFrame, kernel="linear", **kwargs):
     """
     Calculates the Maximum Mean Discrepency between two samples
     """

@@ -47,12 +47,8 @@ class DriftMetric(AbstractMetrics):
         """
 
         try:
-            if self._feature_name is not None:
-                ref_column = reference[self._feature_name]
-                self._column = current[self._feature_name]
-            else:
-                ref_column = reference
-                self._column = current
+            ref_column = reference[self._feature_name] if self._feature_name is not None else reference
+            self._column = current[self._feature_name] if self._feature_name is not None else current
 
             value = DriftMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
 
@@ -111,18 +107,11 @@ class DriftTestMetric(AbstractMetrics):
         """
 
         try:
-            if self._feature_name is not None:
-                ref_column = reference[self._feature_name]
-                self._column = current[self._feature_name]
-            else:
-                ref_column = reference
-                self._column = current
+            ref_column = reference[self._feature_name] if self._feature_name is not None else reference
+            self._column = current[self._feature_name] if self._feature_name is not None else current
 
-            if self._name != "CvM":
-                _, pvalue = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
-            else:
-                res = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
-                pvalue = res.pvalue
+            test_result = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
+            pvalue = test_result.pvalue
 
             if isinstance(alpha, (int, float)):
                 status = pvalue < alpha
