@@ -26,7 +26,11 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from .utils import kullback_leibler_divergence, max_mean_discrepency, population_stability_index
+from .utils import (
+    kullback_leibler_divergence,
+    max_mean_discrepency,
+    population_stability_index,
+)
 
 
 class MetricsType(Enum):
