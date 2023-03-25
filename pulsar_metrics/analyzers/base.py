@@ -49,7 +49,7 @@ class AbstractAnalyzer(ABC):
             self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
             self._results = None
         except Exception as e:
-            print(str(e))
+            print(f"Error when initializing the analyzer: {str(e)}")
 
     @property
     @abstractmethod
@@ -119,7 +119,7 @@ class Analyzer(AbstractAnalyzer):
                 #         f"was NOT added to the analyzer list"
                 #     )
             except Exception as e:
-                print(str(e))
+                print(f" Error in adding performance metric: {str(e)}")
 
     def add_drift_metrics(self, metrics_list: list, features_list: list = None):
         """Adding a list of drift metrics to the analyzer"""
@@ -149,7 +149,7 @@ class Analyzer(AbstractAnalyzer):
                         self._metrics_list.append(metric)
                         print("Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature))
                 except Exception as e:
-                    print(str(e))
+                    print(f"Error in adding drift metrics: {str(e)}")
 
     def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
         """Running the analyzer from the list of metrics"""
@@ -202,4 +202,4 @@ class Analyzer(AbstractAnalyzer):
 
                     self._results.append(metric._result)
             except Exception as e:
-                print(str(e))
+                print(f"Error during analyzer run: {str(e)}")

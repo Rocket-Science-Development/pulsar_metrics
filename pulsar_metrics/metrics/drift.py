@@ -21,7 +21,7 @@ class DriftMetric(AbstractMetrics):
         try:
             self._feature_name = feature_name
         except Exception as e:
-            print(str(e))
+            print(f"Error in initializing metric {metric_name}: {str(e)}")
 
     def _check_metrics_name(self, name: str):
         if name not in DriftMetricsFuncs._member_names_:
@@ -67,7 +67,7 @@ class DriftMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(str(e))
+            print(f"Error in evaluating the drift metric {self._name}: {str(e)}")
 
 
 class DriftTestMetric(AbstractMetrics):
@@ -82,7 +82,7 @@ class DriftTestMetric(AbstractMetrics):
             self._feature_name = feature_name
 
         except Exception as e:
-            print(str(e))
+            print(f"Error in initializing the drift test metric {metric_name}: {str(e)}")
 
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
@@ -131,7 +131,7 @@ class DriftTestMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(str(e))
+            print(f"Error in evaluating the drift test metric {self._name}: {str(e)}")
 
 
 def CustomDriftMetric(func):

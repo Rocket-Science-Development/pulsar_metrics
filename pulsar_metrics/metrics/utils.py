@@ -34,7 +34,7 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
 
             return percents
     except Exception as e:
-        print(str(e))
+        print(f"Error while calculating population percentages: {str(e)}")
 
 
 def kullback_leibler_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
