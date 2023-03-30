@@ -18,6 +18,8 @@ from ..metrics.enums import (  # MetricsType,
 from ..metrics.performance import PerformanceMetric
 from ..metrics.statistics import FeatureSummary
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
+
 
 class AbstractAnalyzer(ABC):
 
@@ -49,13 +51,16 @@ class AbstractAnalyzer(ABC):
             self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
             self._results = None
         except Exception as e:
-            print(str(e))
-
+            print(f"Error in initializing __init__() in the analysers base: {str(e)}")
+           
     @property
     @abstractmethod
     def run(self, current: pd.DataFrame, reference: pd.DataFrame):
-        raise NotImplementedError
-
+        raise error_msg(
+            value= None, 
+            message=f"NotImplementedError in run() in analyzers base",
+            ) 
+ 
     def schedule(self):
         pass
 
@@ -112,17 +117,9 @@ class Analyzer(AbstractAnalyzer):
                 if metric_name in PerformanceMetricsFuncs._member_names_:
                     metric = PerformanceMetric(metric_name=metric_name, **kwargs)
                     self._metrics_list.append(metric)
-                # if hasattr(metric, "_y_true"):
-                #     self._metrics_list.append(metric)
-                #     print("Performance metric '{}' added to the analyzer list".format(metric_name))
-                # else:
-                #     raise ValueError(
-                #         f"The dataset contains no ground truth for performance assessment. Metric '{metric_name}'"
-                #         f"was NOT added to the analyzer list"
-                #     )
             except Exception as e:
-                print(str(e))
-
+                print(f"Error in add_performance_metrics() in the analysers base: {str(e)}")
+  
     def add_drift_metrics(self, metrics_list: list, features_list: list = None):
 
         """Adding a list of drift metrics to the analyzer"""
@@ -145,13 +142,17 @@ class Analyzer(AbstractAnalyzer):
                         metric = DriftTestMetric(metric_name=metric_name, feature_name=feature)
                     else:
                         metric = None
-                        raise InvalidInput(f"unknown drift metric key '{metric_name}' given. ")
+                         raise error_msg(
+                            value= metric_name, 
+                            message= f"unknown drift metric key '{metric_name}' given. ",
+                            )
                     if metric is not None:
                         self._metrics_list.append(metric)
                         print("Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature))
                 except Exception as e:
-                    print(str(e))
-
+                    print(f"Error in add_drift_metrics() in the analysers base: {str(e)}")
+          
+          
     def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
 
         """Running the analyzer from the list of metrics"""
@@ -175,11 +176,20 @@ class Analyzer(AbstractAnalyzer):
         )
 
         if len(self._metrics_list) == 0:
-            raise ValueError("The list of metrics for the analyzer is empty.")
+            raise error_msg(
+            value= None, 
+            message= "The list of metrics for the analyzer is empty.",
+            ) 
         elif df_reference.shape[0] == 0:
-            raise ValueError("Wrong model metadata for reference dataset")
+            raise error_msg(
+            value= None, 
+            message= "Wrong model metadata for reference dataset.",
+            )
         elif df_current.shape[0] == 0:
-            raise ValueError("Wrong model metadata for current dataset")
+            raise error_msg(
+            value= None, 
+            message= "Wrong model metadata for current dataset.",
+            )
         else:
             try:
                 self._results = []
@@ -196,11 +206,12 @@ class Analyzer(AbstractAnalyzer):
                         if (metric._y_name in df_current.columns) and (df_current[metric._y_name].isnull().sum() == 0):
                             metric.evaluate(current=df_current, reference=df_reference, **kwargs)
                         else:
-                            raise ValueError(
-                                f"The dataset contains no ground truth for performance assessment. Metric '{metric._name}'"
-                                f"was NOT calculated"
-                            )
+                            raise error_msg(
+                                        value= None, 
+                                        message=  f"The dataset contains no ground truth for performance assessment. Metric '{metric._name}'"
+                                f"was NOT calculated",
+                                        )
 
                     self._results.append(metric._result)
             except Exception as e:
-                print(str(e))
+                print(f"Exception in run() in the Analyzer class (base): {str(e)}")

@@ -1,5 +1,4 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
-# from functools import partial
 from typing import Union
 
 import pandas as pd
@@ -8,6 +7,8 @@ from black import InvalidInput
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
+
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
 
 
 class DriftMetric(AbstractMetrics):
@@ -21,14 +22,16 @@ class DriftMetric(AbstractMetrics):
 
         try:
             self._feature_name = feature_name
-            # self._column = data[feature_name]
-
+  
         except Exception as e:
-            print(str(e))
-
+            print(f"Exception in initializing __init__() in the metrics drift: {str(e)}")
+      
     def _check_metrics_name(self, name: str):
         if name not in DriftMetricsFuncs._member_names_:
-            raise InvalidInput(f"unknown metric key '{name}' given. " f"Should be one of {DriftMetricsFuncs._member_names_}.")
+            raise error_msg(
+            value=None, 
+            message= f"InvalidInput: unknown metric key '{name}' given." f"Should be one of {DriftMetricsFuncs._member_names_}."
+            ) 
 
     def evaluate(
         self,
@@ -59,22 +62,18 @@ class DriftMetric(AbstractMetrics):
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.drift.value,
-                # model_id=self._model_id,
-                # model_version=self._model_version,
                 feature_name=self._feature_name,
                 metric_value=value,
                 conf_int=None,
                 drift_status=status,
                 threshold=threshold,
-                # period_start=self._period_start,
-                # period_end=self._period_end,
             )
 
             return self._result
 
         except Exception as e:
-            print(str(e))
-
+            print(f"Exception in evaluate() in the DriftMetric class (drift): {str(e)}")
+     
 
 class DriftTestMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
@@ -87,14 +86,16 @@ class DriftTestMetric(AbstractMetrics):
 
         try:
             self._feature_name = feature_name
-            # self._column = data[feature_name]
-
+ 
         except Exception as e:
-            print(str(e))
-
+            print(f"Exception in DriftTestMetric() in the DriftMetric class(drift): {str(e)}")
+     
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
-            raise InvalidInput(f"unknown metric key '{name}' given. " f"Should be one of {DriftTestMetricsFuncs._member_names_}.")
+            raise error_msg(
+            value= DriftMetricsFuncs._member_names_, 
+            message= f"InvalidInput: unknown metric key '{name}' given." f"Should be one of {DriftMetricsFuncs._member_names_}."
+            )
 
     def evaluate(
         self,
@@ -125,7 +126,6 @@ class DriftTestMetric(AbstractMetrics):
                 res = DriftTestMetricsFuncs[self._name].value(
                     current[self._feature_name], reference[self._feature_name], **kwargs
                 )
-                # statistic = res.statistic
                 pvalue = res.pvalue
 
             if isinstance(alpha, (int, float)):
@@ -136,21 +136,17 @@ class DriftTestMetric(AbstractMetrics):
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.drift.value,
-                # model_id=self._model_id,
-                # model_version=self._model_version,
                 feature_name=self._feature_name,
                 metric_value=pvalue,
                 conf_int=None,
                 drift_status=status,
-                threshold=alpha,
-                # period_start=self._period_start,
-                # period_end=self._period_end,
+                threshold=alpha,f._period_end,
             )
 
             return self._result
 
         except Exception as e:
-            print(str(e))
+            print(f"Exception in evaluate() in the DriftMetric class (drift): {str(e)}")
 
 
 def CustomDriftMetric(func):
@@ -174,14 +170,10 @@ def CustomDriftMetric(func):
                     metric_name=self._name,
                     metric_type=MetricsType.custom.value,
                     feature_name=self._feature_name,
-                    # model_id=self._model_id,
-                    # model_version=self._model_version,
                     metric_value=value,
                     conf_int=None,
                     drift_status=status,
                     threshold=threshold,
-                    # period_start=self._period_start,
-                    # period_end=self._period_end,
                 )
 
                 return self._result

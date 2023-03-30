@@ -9,6 +9,8 @@ from scipy.stats import kurtosis, skew
 
 from .base import MetricResults
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
+
 _numeric_dict = {"mean": np.mean, "median": np.median, "std": np.std, "skewness": skew, "kurtosis": kurtosis}
 
 
@@ -29,15 +31,21 @@ class FeatureSummaryAbstract(ABC):
     @property
     @abstractmethod
     def evaluate(self) -> Sequence[MetricResults]:
-        raise NotImplementedError
-
+        raise error_msg(
+            value= None,
+            message= f"NotImplementedError in evaluate() in FeatureSummaryAbstract class(statistics)",
+            ) 
+ 
     def _check_feature_name(self, data: pd.DataFrame):
 
         try:
             if self._feature_name not in data.columns:
-                raise InvalidInput(f"Unknwon feature with name '{self._feature_name}'.")
+                raise error_msg(
+                    value= self._feature_name,
+                    message= f"InvalidInput in _check_feature_name() in FeatureSummaryAbstract class(statistics)",
+                    ) 
         except Exception as e:
-            print(str(e))
+            print(f"Exception in evaluate() in FeatureSummaryAbstract class: {str(e)}")
 
     def get_result(self):
         return self._result
@@ -120,4 +128,5 @@ class FeatureSummary(FeatureSummaryAbstract):
             )
             self._result.append(count)
         except Exception as e:
-            print(str(e))
+            print(f"Exception in evaluate() in the FeatureSummary class( statistics): {str(e)}")
+            

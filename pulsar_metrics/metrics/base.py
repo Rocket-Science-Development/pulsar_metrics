@@ -16,6 +16,8 @@ from .enums import (
     PerformanceMetricsFuncs,
 )
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
+
 
 class MetricResults(BaseModel):
 
@@ -40,12 +42,15 @@ class MetricResults(BaseModel):
     #     if v < values["period_end"]:
     #         raise ValueError("Current timestamp earlier than period end")
     #     return v
-
+   
     # TODO: validators for model id's, model's version, data_id, and metrics type
     @validator("metric_type", always=True)
     def metric_type_is_invalid(cls, v, **kwargs):
         if (v not in MetricsType._member_names_) and (v is not None):
-            raise ValueError(f"Metric type should be None or one of {MetricsType._member_names_}")
+            raise error_msg(
+            value=None,
+            message= f"ValueErro: Metric type should be None or one of {MetricsType._member_names_}",
+            ) 
         return v
 
     @validator("metric_name", always=True)
@@ -54,7 +59,10 @@ class MetricResults(BaseModel):
             PerformanceMetricsFuncs._member_names_ + DriftMetricsFuncs._member_names_ + DriftTestMetricsFuncs._member_names_
         )
         if (v not in metric_names) and (values["metric_type"] not in [MetricsType.custom.value, MetricsType.statistics.value]):
-            raise ValueError(f"Metric name {v} is invalid for {values['metric_type']} type")
+            raise error_msg(
+            value= None,
+            message= f"ValueErro:Metric name {v} is invalid for {values['metric_type']} type",
+            ) 
         return v
 
 
@@ -89,7 +97,10 @@ class AbstractMetrics(ABC):
     @property
     @abstractmethod
     def evaluate(self) -> MetricResults:
-        raise NotImplementedError
+        raise error_msg(
+            value= None,
+            message= f"NotImplementedError in evaluate() in AbstractMetrics class (base)",
+            ) 
 
     def _check_metrics_name(self):
         pass
@@ -97,7 +108,7 @@ class AbstractMetrics(ABC):
     def get_result(self):
         return self._result
 
-    # TODO: method to compare the metrics value to single value or interval thresholds
+# TODO: method to compare the metrics value to single value or interval thresholds
 
 
 def CustomMetric(func):
@@ -119,14 +130,10 @@ def CustomMetric(func):
                 self._result = MetricResults(
                     metric_name=self._name,
                     metric_type=MetricsType.custom.value,
-                    # model_id=self._model_id,
-                    # model_version=self._model_version,
                     metric_value=value,
                     conf_int=None,
                     drift_status=status,
                     threshold=threshold,
-                    # period_start=self._period_start,
-                    # period_end=self._period_end,
                 )
 
                 return self._result

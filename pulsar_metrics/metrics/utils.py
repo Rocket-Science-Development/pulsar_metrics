@@ -34,8 +34,8 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
 
             return percents
     except Exception as e:
-        print(str(e))
-
+        print(f"Exception in get_population_percentages() in the metrics (utils): {str(e)}")
+ 
 
 def kl_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
 
