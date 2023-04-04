@@ -26,7 +26,11 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from .utils import kl_divergence, psi
+from .utils import (
+    kullback_leibler_divergence,
+    max_mean_discrepency,
+    population_stability_index,
+)
 
 
 class MetricsType(Enum):
@@ -40,9 +44,10 @@ class MetricsType(Enum):
 
 
 class DriftMetricsFuncs(Enum):
-    kl = partial(kl_divergence)
-    psi = partial(psi)
+    kl = partial(kullback_leibler_divergence)
+    psi = partial(population_stability_index)
     wasserstein = partial(wasserstein_distance)
+    mmd = partial(max_mean_discrepency)
 
 
 class DriftTestMetricsFuncs(Enum):

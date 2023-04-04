@@ -12,7 +12,6 @@ from .enums import PerformanceMetricsFuncs
 
 class PerformanceMetric(AbstractMetrics):
     def __init__(self, metric_name: str, **kwargs):
-
         """Supercharged init method for performance metrics"""
 
         super().__init__(metric_name)
@@ -26,7 +25,7 @@ class PerformanceMetric(AbstractMetrics):
             # self._y_pred = data[pred_name]
 
         except Exception as e:
-            print(str(e))
+            print(f"Error when initializing performance metric {metric_name}: {str(e)}")
 
     def _check_metrics_name(self, metric_name: str):
         if metric_name not in PerformanceMetricsFuncs._member_names_:
@@ -46,7 +45,6 @@ class PerformanceMetric(AbstractMetrics):
         upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
-
         """Evaluation function for performance metrics
 
         Parameters
@@ -59,7 +57,6 @@ class PerformanceMetric(AbstractMetrics):
         """
 
         try:
-
             self._n_sample = current.shape[0]
 
             value = PerformanceMetricsFuncs[self._name].value(current[self._y_name], current[self._pred_name], **kwargs)
@@ -88,10 +85,9 @@ class PerformanceMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(str(e))
+            print(f"Error when evaluating performance metric {self._name}: {str(e)}")
 
     def _bootstrap(self, current: pd.DataFrame, n_bootstrap: int = 100, seed: int = 123, alpha: float = 0.05, **kwargs):
-
         """Function to bootstrap the metrics for confidence interval evaluation
 
         Parameters

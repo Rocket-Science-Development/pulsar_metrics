@@ -17,7 +17,6 @@ class FeatureSummaryAbstract(ABC):
     """Base abstract class for feature summary statistics"""
 
     def __init__(self, feature_name: str):
-
         """Parameters
         ----------
         - feature_name: name of the feature
@@ -32,12 +31,8 @@ class FeatureSummaryAbstract(ABC):
         raise NotImplementedError
 
     def _check_feature_name(self, data: pd.DataFrame):
-
-        try:
-            if self._feature_name not in data.columns:
-                raise InvalidInput(f"Unknwon feature with name '{self._feature_name}'.")
-        except Exception as e:
-            print(str(e))
+        if self._feature_name not in data.columns:
+            raise InvalidInput(f"Unknwon feature with name '{self._feature_name}'.")
 
     def get_result(self):
         return self._result
@@ -52,7 +47,6 @@ class FeatureSummaryAbstract(ABC):
 
 class FeatureSummary(FeatureSummaryAbstract):
     def __init__(self, feature_name: str):
-
         """Supercharged init method for feature summary statistics"""
 
         super().__init__(feature_name)
@@ -60,13 +54,11 @@ class FeatureSummary(FeatureSummaryAbstract):
     def evaluate(
         self, current: pd.DataFrame, reference: pd.DataFrame = None, percentiles: list[float] = [0.25, 0.95]
     ) -> Sequence[MetricResults]:
-
         try:
             # Checking that the features exists in the current dataframe
             self._check_feature_name(current)
 
             if is_numeric_dtype(current[self._feature_name]):
-
                 # Iterating through the list of functions for numerical features
                 for name, func in _numeric_dict.items():
                     if reference is not None:
@@ -120,4 +112,4 @@ class FeatureSummary(FeatureSummaryAbstract):
             )
             self._result.append(count)
         except Exception as e:
-            print(str(e))
+            print(f"Error when calculating summary statistics: {str(e)}")
