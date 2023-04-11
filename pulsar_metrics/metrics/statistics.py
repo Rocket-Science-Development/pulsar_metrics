@@ -3,13 +3,11 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from black import InvalidInput
 from pandas.core.dtypes.common import is_numeric_dtype
 from scipy.stats import kurtosis, skew
 
-from .base import MetricResults
-
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+from .base import MetricResults
 
 _numeric_dict = {"mean": np.mean, "median": np.median, "std": np.std, "skewness": skew, "kurtosis": kurtosis}
 
@@ -31,21 +29,20 @@ class FeatureSummaryAbstract(ABC):
     @abstractmethod
     def evaluate(self) -> Sequence[MetricResults]:
         raise error_msg(
-            value= None,
-            message= f"NotImplementedError in evaluate() in FeatureSummaryAbstract class(statistics)",
-            ) 
- 
+            value=None,
+            message=f'{"NotImplementedError in evaluate() in FeatureSummaryAbstract class(statistics)"}',
+        )
+
     def _check_feature_name(self, data: pd.DataFrame):
 
         try:
             if self._feature_name not in data.columns:
                 raise error_msg(
-                    value= self._feature_name,
-                    message= f"InvalidInput in _check_feature_name() in FeatureSummaryAbstract class(statistics)",
-                    ) 
+                    value=self._feature_name,
+                    message=f'{"InvalidInput in _check_feature_name() in FeatureSummaryAbstract class(statistics)"}',
+                )
         except Exception as e:
             print(f"Exception in evaluate() in FeatureSummaryAbstract class: {str(e)}")
-
 
     def get_result(self):
         return self._result
