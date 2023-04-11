@@ -55,10 +55,10 @@ class AbstractAnalyzer(ABC):
     @abstractmethod
     def run(self, current: pd.DataFrame, reference: pd.DataFrame):
         raise error_msg(
-            value= None, 
-            message=f"NotImplementedError in run() in analyzers base",
-            ) 
- 
+            value=None,
+            message=f'{"NotImplementedError in run() in analyzers base"}',
+        )
+
     def schedule(self):
         pass
 
@@ -104,8 +104,8 @@ class Analyzer(AbstractAnalyzer):
         """Adding a list of performance metrics to the analyzer"""
 
         """Parameters
-        ----------
-        - metrics_list: list of performance metrics names
+        -----------
+        metrics_list: list of performance metrics names
         """
 
         for metric_name in metrics_list:
@@ -120,8 +120,8 @@ class Analyzer(AbstractAnalyzer):
         """Adding a list of drift metrics to the analyzer"""
 
         """Parameters
-        ----------
-        - metrics_list: list of drift metric names
+        -----------
+        metrics_list: list of drift metric names
         """
 
         # TODO: better handling of numeric vs categorical variables
@@ -140,9 +140,9 @@ class Analyzer(AbstractAnalyzer):
                     else:
                         metric = None
                         raise error_msg(
-                            value= metric_name, 
-                            message= f"unknown drift metric key '{metric_name}' given. ",
-                            )
+                            value=metric_name,
+                            message=f'{"unknown drift metric key {metric_name} given."}',
+                        )
                     if metric is not None:
                         self._metrics_list.append(metric)
                         print("Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature))
@@ -173,18 +173,18 @@ class Analyzer(AbstractAnalyzer):
 
         if len(self._metrics_list) == 0:
             raise error_msg(
-            value= None, 
-            message= "The list of metrics for the analyzer is empty.",
-            ) 
+                value=None,
+                message=f'{"The list of metrics for the analyzer is empty."}',
+            )
         elif df_reference.shape[0] == 0:
             raise error_msg(
-            value= None, 
-            message= "Wrong model metadata for reference dataset.",
+                value=None,
+                message=f'{"Wrong model metadata for reference dataset."}',
             )
         elif df_current.shape[0] == 0:
             raise error_msg(
-            value= None, 
-            message= "Wrong model metadata for current dataset.",
+                value=None,
+                message=f'{"Wrong model metadata for current dataset."}',
             )
         else:
             try:
@@ -203,10 +203,9 @@ class Analyzer(AbstractAnalyzer):
                             metric.evaluate(current=df_current, reference=df_reference, **kwargs)
                         else:
                             raise error_msg(
-                                        value= None, 
-                                        message=  f"The dataset contains no ground truth for performance assessment. Metric '{metric._name}'"
-                                f"was NOT calculated",
-                                        )
+                                value=None,
+                                message=f'{"The dataset contains no ground truth for performance assessment"}',
+                            )
 
                     self._results.append(metric._result)
             except Exception as e:
