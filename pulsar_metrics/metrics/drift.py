@@ -13,7 +13,6 @@ from ..exceptions import CustomExceptionPulsarMetric as error_msg
 
 class DriftMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
-
         """Supercharged init method for drift metrics"""
 
         super().__init__(metric_name)
@@ -25,7 +24,7 @@ class DriftMetric(AbstractMetrics):
   
         except Exception as e:
             print(f"Exception in initializing __init__() in the metrics drift: {str(e)}")
-      
+
     def _check_metrics_name(self, name: str):
         if name not in DriftMetricsFuncs._member_names_:
             raise error_msg(
@@ -41,7 +40,6 @@ class DriftMetric(AbstractMetrics):
         upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
-
         """Evaluation function for performance metrics
 
         Parameters
@@ -54,8 +52,10 @@ class DriftMetric(AbstractMetrics):
         """
 
         try:
+            ref_column = reference[self._feature_name] if self._feature_name is not None else reference
+            self._column = current[self._feature_name] if self._feature_name is not None else current
 
-            value = DriftMetricsFuncs[self._name].value(current[self._feature_name], reference[self._feature_name], **kwargs)
+            value = DriftMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
 
             status = compare_to_threshold(value, threshold, upper_bound)
 
@@ -73,11 +73,10 @@ class DriftMetric(AbstractMetrics):
 
         except Exception as e:
             print(f"Exception in evaluate() in the DriftMetric class (drift): {str(e)}")
-     
+
 
 class DriftTestMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
-
         """Supercharged init method for drift metrics"""
 
         super().__init__(metric_name)
@@ -89,7 +88,7 @@ class DriftTestMetric(AbstractMetrics):
  
         except Exception as e:
             print(f"Exception in DriftTestMetric() in the DriftMetric class(drift): {str(e)}")
-     
+
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
             raise error_msg(
@@ -104,7 +103,6 @@ class DriftTestMetric(AbstractMetrics):
         alpha: float = 0.05,
         **kwargs,
     ) -> MetricResults:
-
         """Evaluation function for performance metrics
 
         Parameters
@@ -117,16 +115,11 @@ class DriftTestMetric(AbstractMetrics):
         """
 
         try:
+            ref_column = reference[self._feature_name] if self._feature_name is not None else reference
+            self._column = current[self._feature_name] if self._feature_name is not None else current
 
-            if self._name != "CvM":
-                _, pvalue = DriftTestMetricsFuncs[self._name].value(
-                    current[self._feature_name], reference[self._feature_name], **kwargs
-                )
-            else:
-                res = DriftTestMetricsFuncs[self._name].value(
-                    current[self._feature_name], reference[self._feature_name], **kwargs
-                )
-                pvalue = res.pvalue
+            test_result = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
+            pvalue = test_result.pvalue
 
             if isinstance(alpha, (int, float)):
                 status = pvalue < alpha
@@ -140,7 +133,7 @@ class DriftTestMetric(AbstractMetrics):
                 metric_value=pvalue,
                 conf_int=None,
                 drift_status=status,
-                threshold=alpha,f._period_end,
+                threshold=alpha,
             )
 
             return self._result
@@ -159,7 +152,6 @@ def CustomDriftMetric(func):
                 self._feature_name = feature_name
 
             def evaluate(self, current: pd.DataFrame, reference: pd.DataFrame, **kwargs):
-
                 value = func(current[self._feature_name], reference[self._feature_name], **kwargs)
                 threshold = kwargs.get("threshold", None)
                 upper_bound = kwargs.get("upper_bound", True)

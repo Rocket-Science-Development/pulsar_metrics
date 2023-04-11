@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 from black import InvalidInput
 
@@ -26,7 +27,6 @@ class AbstractAnalyzer(ABC):
     """Base abstract class for analyzers"""
 
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None):
-
         """Parameters
         ----------
         - name: name of the analyzer
@@ -52,7 +52,7 @@ class AbstractAnalyzer(ABC):
             self._results = None
         except Exception as e:
             print(f"Error in initializing __init__() in the analysers base: {str(e)}")
-           
+
     @property
     @abstractmethod
     def run(self, current: pd.DataFrame, reference: pd.DataFrame):
@@ -98,13 +98,11 @@ class AbstractAnalyzer(ABC):
 
 class Analyzer(AbstractAnalyzer):
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None, **kwargs):
-
         """Supercharged init method for performance metrics"""
 
         super().__init__(name, model_id, model_version, description)
 
     def add_performance_metrics(self, metrics_list: list, **kwargs):
-
         """Adding a list of performance metrics to the analyzer"""
 
         """Parameters
@@ -119,9 +117,8 @@ class Analyzer(AbstractAnalyzer):
                     self._metrics_list.append(metric)
             except Exception as e:
                 print(f"Error in add_performance_metrics() in the analysers base: {str(e)}")
-  
-    def add_drift_metrics(self, metrics_list: list, features_list: list = None):
 
+    def add_drift_metrics(self, metrics_list: list, features_list: list = None):
         """Adding a list of drift metrics to the analyzer"""
 
         """Parameters
@@ -131,7 +128,9 @@ class Analyzer(AbstractAnalyzer):
 
         # TODO: better handling of numeric vs categorical variables
         if features_list is None:
-            features_list = self._data.select_dtypes("number").columns
+            features_list = np.setdiff1d(
+                self._data.select_dtypes("number").columns, ["y_true", "y_pred", "y_pred_proba", "model_id", "model_version"]
+            )
 
         for metric_name in metrics_list:
             for feature in features_list:
@@ -151,10 +150,8 @@ class Analyzer(AbstractAnalyzer):
                         print("Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature))
                 except Exception as e:
                     print(f"Error in add_drift_metrics() in the analysers base: {str(e)}")
-          
-          
-    def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
 
+    def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
         """Running the analyzer from the list of metrics"""
 
         df_reference = reference.loc[
@@ -172,6 +169,7 @@ class Analyzer(AbstractAnalyzer):
                 "period_start": df_current.pred_timestamp.min(),
                 "period_end": df_current.pred_timestamp.max(),
                 "eval_timestamp": datetime.now(),
+                "options": options,
             }
         )
 
