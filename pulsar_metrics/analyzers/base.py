@@ -139,7 +139,7 @@ class Analyzer(AbstractAnalyzer):
                         metric = DriftTestMetric(metric_name=metric_name, feature_name=feature)
                     else:
                         metric = None
-                         raise error_msg(
+                        raise error_msg(
                             value= metric_name, 
                             message= f"unknown drift metric key '{metric_name}' given. ",
                             )
