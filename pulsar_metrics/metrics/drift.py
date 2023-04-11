@@ -2,13 +2,11 @@
 from typing import Union
 
 import pandas as pd
-from black import InvalidInput
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
-
-from ..exceptions import CustomExceptionPulsarMetric as error_msg
 
 
 class DriftMetric(AbstractMetrics):
