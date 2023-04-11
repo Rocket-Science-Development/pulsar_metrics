@@ -5,11 +5,11 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from black import InvalidInput
 
-# mport warnings
+# import warnings
 from tqdm import tqdm
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..metrics.drift import DriftMetric, DriftTestMetric
 from ..metrics.enums import (  # MetricsType,
     DriftMetricsFuncs,
@@ -18,8 +18,6 @@ from ..metrics.enums import (  # MetricsType,
 )
 from ..metrics.performance import PerformanceMetric
 from ..metrics.statistics import FeatureSummary
-
-from ..exceptions import CustomExceptionPulsarMetric as error_msg
 
 
 class AbstractAnalyzer(ABC):
