@@ -3,13 +3,12 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
-from black import InvalidInput
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import PerformanceMetricsFuncs
 
-from ..exceptions import CustomExceptionPulsarMetric as error_msg
 
 class PerformanceMetric(AbstractMetrics):
     def __init__(self, metric_name: str, **kwargs):
@@ -22,18 +21,17 @@ class PerformanceMetric(AbstractMetrics):
         try:
             self._y_name = kwargs.get("y_name", "y_true")
             self._pred_name = kwargs.get("pred_name", "y_pred")
-     
+
         except Exception as e:
             print(f"Exception in initializing __init__() in the PerformanceMetric class(performance): {str(e)}")
-
 
     def _check_metrics_name(self, metric_name: str):
         if metric_name not in PerformanceMetricsFuncs._member_names_:
             raise error_msg(
-            value=None, 
-            message=f"unknown metric key '{metric_name}' given. " f"Should be one of {PerformanceMetricsFuncs._member_names_}.",
+                value=None,
+                message=f'{"unknown metric key {metric_name} given"}',
             )
-           
+
     def evaluate(
         self,
         current: pd.DataFrame,
