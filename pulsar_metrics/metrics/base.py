@@ -69,7 +69,6 @@ class AbstractMetrics(ABC):
     """Base abstract class for metricsa"""
 
     def __init__(self, metric_name: str):
-
         """Parameters
         ----------
         - name: name of the metrics
@@ -106,6 +105,7 @@ class AbstractMetrics(ABC):
     def get_result(self):
         return self._result
 
+
 # TODO: method to compare the metrics value to single value or interval thresholds
 
 
@@ -118,7 +118,6 @@ def CustomMetric(func):
                 super().__init__(metric_name)
 
             def evaluate(self, **kwargs):
-
                 value = func(**kwargs)
                 threshold = kwargs.get("threshold", None)
                 upper_bound = kwargs.get("upper_bound", True)
