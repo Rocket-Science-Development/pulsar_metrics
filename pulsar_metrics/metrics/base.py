@@ -8,6 +8,7 @@ from typing import Union
 # import pandas as pd
 from pydantic import BaseModel, validator
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
 from .enums import (
     DriftMetricsFuncs,
@@ -15,8 +16,6 @@ from .enums import (
     MetricsType,
     PerformanceMetricsFuncs,
 )
-
-from ..exceptions import CustomExceptionPulsarMetric as error_msg
 
 
 class MetricResults(BaseModel):
@@ -42,15 +41,14 @@ class MetricResults(BaseModel):
     #     if v < values["period_end"]:
     #         raise ValueError("Current timestamp earlier than period end")
     #     return v
-   
     # TODO: validators for model id's, model's version, data_id, and metrics type
     @validator("metric_type", always=True)
     def metric_type_is_invalid(cls, v, **kwargs):
         if (v not in MetricsType._member_names_) and (v is not None):
             raise error_msg(
-            value=None,
-            message= f"ValueErro: Metric type should be None or one of {MetricsType._member_names_}",
-            ) 
+                value=None,
+                message=f'{"ValueErro: Metric type should be None or one of {MetricsType._member_names_}"}',
+            )
         return v
 
     @validator("metric_name", always=True)
@@ -60,9 +58,9 @@ class MetricResults(BaseModel):
         )
         if (v not in metric_names) and (values["metric_type"] not in [MetricsType.custom.value, MetricsType.statistics.value]):
             raise error_msg(
-            value= None,
-            message= f"ValueErro:Metric name {v} is invalid for {values['metric_type']} type",
-            ) 
+                value=None,
+                message=f'{"ValueErro:Metric name {v} is invalid"}',
+            )
         return v
 
 
@@ -98,9 +96,9 @@ class AbstractMetrics(ABC):
     @abstractmethod
     def evaluate(self) -> MetricResults:
         raise error_msg(
-            value= None,
-            message= f"NotImplementedError in evaluate() in AbstractMetrics class (base)",
-            ) 
+            value=None,
+            message=f'{"NotImplementedError in evaluate() in AbstractMetrics class (base)"}',
+        )
 
     def _check_metrics_name(self):
         pass
