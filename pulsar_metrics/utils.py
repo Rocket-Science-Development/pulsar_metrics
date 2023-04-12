@@ -24,17 +24,12 @@ def compare_to_threshold(value: float, threshold: Union[list, float, int], upper
 
     try:
         if isinstance(threshold, (float, int)):
-            if upper_bound:
-                status = value < threshold
-            else:
-                status = threshold < value
+            status = value < threshold if upper_bound else threshold < value
         elif isinstance(threshold, list):
-            max_threshold = max(threshold)
-            min_threshold = min(threshold)
-            if (len(threshold) == 2) and min_threshold < max_threshold:
-                status = (value > max_threshold) or (value < min_threshold)
-            else:
-                raise ValueError("A vector threshold should have 2 distinct elements only")
+            status = True if (len(threshold) == 2) and (min(threshold) < value < max(threshold)) else False
+        else:
+            raise ValueError("Vector Threshold should have only two distinct elements [Min,Max]")
+
         return status
     except Exception as e:
-        print(f"Compare to threshold error: {str(e)}")
+        print(f"Exception caught for ValueError in compare_to_threshold():: {str(e)}")
