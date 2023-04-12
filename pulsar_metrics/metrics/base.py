@@ -47,7 +47,7 @@ class MetricResults(BaseModel):
         if (v not in MetricsType._member_names_) and (v is not None):
             raise error_msg(
                 value=None,
-                message=f'{"ValueErro: Metric type should be None or one of {MetricsType._member_names_}"}',
+                message=f'{"ValueError: Metric type should be None or one of {MetricsType._member_names_}"}',
             )
         return v
 
@@ -59,7 +59,7 @@ class MetricResults(BaseModel):
         if (v not in metric_names) and (values["metric_type"] not in [MetricsType.custom.value, MetricsType.statistics.value]):
             raise error_msg(
                 value=None,
-                message=f'{"ValueErro:Metric name {v} is invalid"}',
+                message=f'{"ValueError:Metric name {v} is invalid"}',
             )
         return v
 
