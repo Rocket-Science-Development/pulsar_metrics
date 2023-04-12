@@ -2,19 +2,36 @@ from typing import Union
 
 import pandas as pd
 
+from .exceptions import CustomExceptionPulsarMetric as error_msg
+
+ERROR_MSG_VECTOR_THRESHOLD = "Vector Threshold should have only two distinct elements [Min,Max]"
+ERROR_MSG_MISSING_KEY = "Missing key for the column in the dataset"
+
 
 def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: str = "y_pred"):
 
     if y_name not in data.columns:
-        raise KeyError("The name of the realized target is not in the dataset")
+        raise error_msg(
+            value=y_name,
+            message=ERROR_MSG_MISSING_KEY,
+        )
     elif pred_name not in data.columns:
-        raise KeyError("The name of the realized target is not in the dataset")
+        raise error_msg(
+            value=pred_name,
+            message=ERROR_MSG_MISSING_KEY,
+        )
     elif "date" not in data.columns:
-        raise KeyError('There is not datetime column in the dataset or it should be named "date"')
+        raise error_msg(
+            value=None,
+            message=ERROR_MSG_MISSING_KEY,
+        )
     elif "model_id" not in data.columns:
-        raise KeyError('There is not model id column in the dataset or it should be named "model_id"')
+        raise error_msg(
+            value=None,
+            message=ERROR_MSG_MISSING_KEY,
+        )
     else:
-        print("The dataframe is validated !")
+        print("Input dataframe is validated in validate_dataframe()!")
         return True
 
 

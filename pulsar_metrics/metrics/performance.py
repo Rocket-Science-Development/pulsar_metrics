@@ -3,8 +3,8 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
-from black import InvalidInput
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import PerformanceMetricsFuncs
@@ -21,16 +21,15 @@ class PerformanceMetric(AbstractMetrics):
         try:
             self._y_name = kwargs.get("y_name", "y_true")
             self._pred_name = kwargs.get("pred_name", "y_pred")
-            # self._y_true = data[y_name]
-            # self._y_pred = data[pred_name]
 
         except Exception as e:
-            print(f"Error when initializing performance metric {metric_name}: {str(e)}")
+            print(f"Exception in initializing __init__() in the PerformanceMetric class(performance): {str(e)}")
 
     def _check_metrics_name(self, metric_name: str):
         if metric_name not in PerformanceMetricsFuncs._member_names_:
-            raise InvalidInput(
-                f"unknown metric key '{metric_name}' given. " f"Should be one of {PerformanceMetricsFuncs._member_names_}."
+            raise error_msg(
+                value=None,
+                message=f'{"unknown metric key {metric_name} given"}',
             )
 
     def evaluate(
@@ -71,21 +70,17 @@ class PerformanceMetric(AbstractMetrics):
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.performance.value,
-                # model_id=self._model_id,
-                # model_version=self._model_version,
                 metric_value=value,
                 feature_name="prediction",
                 conf_int=conf_int,
                 drift_status=status,
                 threshold=threshold,
-                # period_start=self._period_start,
-                # period_end=self._period_end,
             )
 
             return self._result
 
         except Exception as e:
-            print(f"Error when evaluating performance metric {self._name}: {str(e)}")
+            print(f"Exception in evaluate() in the PerformanceMetric class (performance): {str(e)}")
 
     def _bootstrap(self, current: pd.DataFrame, n_bootstrap: int = 100, seed: int = 123, alpha: float = 0.05, **kwargs):
         """Function to bootstrap the metrics for confidence interval evaluation

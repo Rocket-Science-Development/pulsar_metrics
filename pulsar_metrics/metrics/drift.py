@@ -1,10 +1,9 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
-# from functools import partial
 from typing import Union
 
 import pandas as pd
-from black import InvalidInput
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
@@ -20,12 +19,16 @@ class DriftMetric(AbstractMetrics):
 
         try:
             self._feature_name = feature_name
+
         except Exception as e:
-            print(f"Error in initializing metric {metric_name}: {str(e)}")
+            print(f"Exception in initializing __init__() in the metrics drift: {str(e)}")
 
     def _check_metrics_name(self, name: str):
         if name not in DriftMetricsFuncs._member_names_:
-            raise InvalidInput(f"unknown metric key '{name}' given. " f"Should be one of {DriftMetricsFuncs._member_names_}.")
+            raise error_msg(
+                value=None,
+                message=f'{"InvalidInput: unknown metric key {name} given."}',
+            )
 
     def evaluate(
         self,
@@ -67,7 +70,7 @@ class DriftMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(f"Error in evaluating the drift metric {self._name}: {str(e)}")
+            print(f"Exception in evaluate() in the DriftMetric class (drift): {str(e)}")
 
 
 class DriftTestMetric(AbstractMetrics):
@@ -82,11 +85,14 @@ class DriftTestMetric(AbstractMetrics):
             self._feature_name = feature_name
 
         except Exception as e:
-            print(f"Error in initializing the drift test metric {metric_name}: {str(e)}")
+            print(f"Exception in DriftTestMetric() in the DriftMetric class(drift): {str(e)}")
 
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
-            raise InvalidInput(f"unknown metric key '{name}' given. " f"Should be one of {DriftTestMetricsFuncs._member_names_}.")
+            raise error_msg(
+                value=DriftMetricsFuncs._member_names_,
+                message=f'{"InvalidInput: unknown metric key {name} given."}',
+            )
 
     def evaluate(
         self,
@@ -131,7 +137,7 @@ class DriftTestMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(f"Error in evaluating the drift test metric {self._name}: {str(e)}")
+            print(f"Exception in evaluate() in the DriftMetric class (drift): {str(e)}")
 
 
 def CustomDriftMetric(func):
