@@ -3,13 +3,12 @@
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
-from scipy.stats import entropy
 from sklearn.metrics.pairwise import pairwise_kernels
 
 
 def get_population_percentages(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
-    The function returns the population percentages of the two pandas series
+    This function returns population percentages of the two pandas series (new,reference)
 
     Parameters
         ----------
@@ -21,49 +20,40 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
     """
 
     try:
-        if is_numeric_dtype(new) & is_numeric_dtype(reference):
-            if not binned:
+        if binned:
+            percents = pd.concat([new, reference], axis=1, keys=["ref", "new"]).fillna(0)
+            percents = percents / percents.sum()
+        elif new.dtype != reference.dtype:
+            raise TypeError("New and reference series should be numeric or object and should have the same type")
+        else:
+            if is_numeric_dtype(new):
                 bins = np.histogram_bin_edges(np.concatenate([reference, new]), bins="sturges")
                 reference = pd.cut(reference, bins, include_lowest=True)
                 new = pd.cut(new, bins, include_lowest=True)
-                vector_all = pd.concat([reference, new], keys=["ref", "new"]).reset_index(0)
-                percents = vector_all.groupby("level_0").value_counts(normalize=True).sort_index().unstack().T
-            else:
-                percents = pd.concat([new, reference], axis=1, keys=["ref", "new"]).fillna(0)
-                percents = percents / percents / sum()
+            vector_all = pd.concat([reference, new], keys=["ref", "new"]).reset_index(0)
+            percents = vector_all.groupby("level_0").value_counts(normalize=True).sort_index().unstack().T
 
-            return percents
+        return percents
     except Exception as e:
-        print(f"Error while calculating population percentages: {str(e)}")
-
-
-def kullback_leibler_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
-    """
-    Calculates the Kullback-Leibler divergence
-    """
-
-    percents = get_population_percentages(new, reference, binned)
-
-    kl_div = entropy(percents["new"], percents["ref"])
-
-    return kl_div
+        print(f"Error in get_population_percentages() while calculating population percentages: {str(e)}")
 
 
 def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
-    Calculates the Population Stability Index (PSI)
+    Calculate the Population Stability Index (PSI) between two samples(new,reference)
     """
 
     percents = get_population_percentages(new, reference, binned)
 
-    psi = ((percents["new"] - percents["ref"]) * np.log(percents["new"] / percents["ref"])).sum()
+    percent_diff = percents["new"] - percents["ref"]
+    percent_ratio = percents["new"] / percents["ref"]
 
-    return psi
+    return (percent_diff * np.log(percent_ratio)).sum()
 
 
 def max_mean_discrepency(new: pd.DataFrame, reference: pd.DataFrame, kernel="linear", **kwargs):
     """
-    Calculates the Maximum Mean Discrepency between two samples
+    Calculate the Maximum Mean Discrepency(MMD) between two samples(new,reference)
     """
 
     if isinstance(new, pd.Series):

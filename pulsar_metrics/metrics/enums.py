@@ -3,6 +3,7 @@
 from enum import Enum
 from functools import partial
 
+from scipy.special import kl_div
 from scipy.stats import (
     chisquare,
     cramervonmises_2samp,
@@ -26,11 +27,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from .utils import (
-    kullback_leibler_divergence,
-    max_mean_discrepency,
-    population_stability_index,
-)
+from .utils import max_mean_discrepency, population_stability_index
 
 
 class MetricsType(Enum):
@@ -44,7 +41,7 @@ class MetricsType(Enum):
 
 
 class DriftMetricsFuncs(Enum):
-    kl = partial(kullback_leibler_divergence)
+    kl = partial(kl_div)
     psi = partial(population_stability_index)
     wasserstein = partial(wasserstein_distance)
     mmd = partial(max_mean_discrepency)
