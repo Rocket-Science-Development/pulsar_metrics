@@ -2,8 +2,7 @@
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
-from scipy.stats import entropy
+from pandas.api.types import is_numeric_dtype, is_object_dtype
 from sklearn.metrics.pairwise import pairwise_kernels
 
 
@@ -21,30 +20,22 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
     """
 
     try:
-        if is_numeric_dtype(new) & is_numeric_dtype(reference):
-            if not binned:
+        if binned:
+            percents = pd.concat([new, reference], axis=1, keys=["ref", "new"]).fillna(0)
+            percents = percents / percents.sum()
+        elif new.dtype != reference.dtype:
+            raise TypeError(f"New and reference series should be numeric or object and should have the same type")
+        else:
+            if is_numeric_dtype(new):
                 bins = np.histogram_bin_edges(np.concatenate([reference, new]), bins="sturges")
                 reference = pd.cut(reference, bins, include_lowest=True)
                 new = pd.cut(new, bins, include_lowest=True)
-                vector_all = pd.concat([reference, new], keys=["ref", "new"]).reset_index(0)
-                percents = vector_all.groupby("level_0").value_counts(normalize=True).sort_index().unstack().T
-            else:
-                percents = pd.concat([new, reference], axis=1, keys=["ref", "new"]).fillna(0)
-                percents = percents / percents / sum()
+            vector_all = pd.concat([reference, new], keys=["ref", "new"]).reset_index(0)
+            percents = vector_all.groupby("level_0").value_counts(normalize=True).sort_index().unstack().T
 
-            return percents
+        return percents
     except Exception as e:
         print(f"Error in get_population_percentages() while calculating population percentages: {str(e)}")
-
-
-def kullback_leibler_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
-    """
-    Calculate Kullback-Leibler divergence (KL divergence) for samples (new,reference)
-    """
-
-    percents = get_population_percentages(new, reference, binned)
-
-    return entropy(percents["new"], percents["ref"])
 
 
 def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False):
