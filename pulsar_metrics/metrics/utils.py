@@ -2,7 +2,7 @@
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_numeric_dtype, is_object_dtype
+from pandas.api.types import is_numeric_dtype
 from sklearn.metrics.pairwise import pairwise_kernels
 
 
@@ -24,7 +24,7 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
             percents = pd.concat([new, reference], axis=1, keys=["ref", "new"]).fillna(0)
             percents = percents / percents.sum()
         elif new.dtype != reference.dtype:
-            raise TypeError(f"New and reference series should be numeric or object and should have the same type")
+            raise TypeError("New and reference series should be numeric or object and should have the same type")
         else:
             if is_numeric_dtype(new):
                 bins = np.histogram_bin_edges(np.concatenate([reference, new]), bins="sturges")
