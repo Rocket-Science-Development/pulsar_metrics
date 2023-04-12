@@ -9,7 +9,7 @@ from sklearn.metrics.pairwise import pairwise_kernels
 
 def get_population_percentages(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
-    The function returns the population percentages of the two pandas series
+    This function returns population percentages of the two pandas series (new,reference)
 
     Parameters
         ----------
@@ -34,36 +34,35 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
 
             return percents
     except Exception as e:
-        print(f"Error while calculating population percentages: {str(e)}")
+        print(f"Error in get_population_percentages() while calculating population percentages: {str(e)}")
 
 
 def kullback_leibler_divergence(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
-    Calculates the Kullback-Leibler divergence
+    Calculate Kullback-Leibler divergence (KL divergence) for samples (new,reference)
     """
 
     percents = get_population_percentages(new, reference, binned)
 
-    kl_div = entropy(percents["new"], percents["ref"])
-
-    return kl_div
+    return entropy(percents["new"], percents["ref"])
 
 
 def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
-    Calculates the Population Stability Index (PSI)
+    Calculate the Population Stability Index (PSI) between two samples(new,reference)
     """
 
     percents = get_population_percentages(new, reference, binned)
 
-    psi = ((percents["new"] - percents["ref"]) * np.log(percents["new"] / percents["ref"])).sum()
+    percent_diff = percents["new"] - percents["ref"]
+    percent_ratio = percents["new"] / percents["ref"]
 
-    return psi
+    return (percent_diff * np.log(percent_ratio)).sum()
 
 
 def max_mean_discrepency(new: pd.DataFrame, reference: pd.DataFrame, kernel="linear", **kwargs):
     """
-    Calculates the Maximum Mean Discrepency between two samples
+    Calculate the Maximum Mean Discrepency(MMD) between two samples(new,reference)
     """
 
     if isinstance(new, pd.Series):
