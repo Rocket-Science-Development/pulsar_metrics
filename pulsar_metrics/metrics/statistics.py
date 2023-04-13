@@ -34,7 +34,6 @@ class FeatureSummaryAbstract(ABC):
         )
 
     def _check_feature_name(self, data: pd.DataFrame):
-
         try:
             if self._feature_name not in data.columns:
                 raise error_msg(
