@@ -9,7 +9,6 @@ ERROR_MSG_MISSING_KEY = "Missing key for the column in the dataset"
 
 
 def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: str = "y_pred"):
-
     if y_name not in data.columns:
         raise error_msg(
             value=y_name,
@@ -36,7 +35,6 @@ def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: st
 
 
 def compare_to_threshold(value: float, threshold: Union[list, float, int], upper_bound=True):
-
     status = None
 
     try:
