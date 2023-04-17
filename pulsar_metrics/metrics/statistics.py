@@ -70,10 +70,7 @@ class FeatureSummary(FeatureSummaryAbstract):
             if is_numeric_dtype(current[self._feature_name]):
                 # Iterating through the list of functions for numerical features
                 for name, func in _numeric_dict.items():
-                    if reference is not None:
-                        threshold = func(reference[self._feature_name])
-                    else:
-                        threshold = None
+                    threshold = func(reference[self._feature_name]) if reference is not None else None
                     statistics = MetricResults(
                         metric_type="statistics",
                         metric_name=name,
@@ -85,10 +82,7 @@ class FeatureSummary(FeatureSummaryAbstract):
 
                 # Adding quantiles
                 for percentile in percentiles:
-                    if reference is not None:
-                        threshold = reference[self._feature_name].quantile(percentile)
-                    else:
-                        threshold = None
+                    threshold = reference[self._feature_name].quantile(percentile) if reference is not None else None
                     statistics = MetricResults(
                         metric_type="statistics",
                         metric_name="P" + str(100 * percentile),
@@ -100,10 +94,7 @@ class FeatureSummary(FeatureSummaryAbstract):
             else:
                 # For now only the most frequent category is calculated
                 category_top = current[self._feature_name].value_counts().index[0]
-                if reference is not None:
-                    threshold = reference[self._feature_name].value_counts().index[0]
-                else:
-                    threshold = None
+                threshold = reference[self._feature_name].value_counts().index[0] if reference is not None else None
                 statistics = MetricResults(
                     metric_type="statistics",
                     metric_name="top",
