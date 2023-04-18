@@ -19,7 +19,6 @@ from .enums import (
 
 
 class MetricResults(BaseModel):
-
     """Data structure for the results of a metric"""
 
     metric_type: str

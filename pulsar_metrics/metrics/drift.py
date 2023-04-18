@@ -17,12 +17,7 @@ class DriftMetric(AbstractMetrics):
         super().__init__(metric_name)
 
         self._check_metrics_name(metric_name)
-
-        try:
-            self._feature_name = feature_name
-
-        except Exception as e:
-            print(f"Exception in initializing __init__() in the metrics drift: {str(e)}")
+        self._feature_name = feature_name
 
     def _check_metrics_name(self, name: str):
         if name not in DriftMetricsFuncs._member_names_:
