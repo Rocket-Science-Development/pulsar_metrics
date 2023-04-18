@@ -5,6 +5,8 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from sklearn.metrics.pairwise import pairwise_kernels
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
+
 
 def get_population_percentages(new: pd.Series, reference: pd.Series, binned: bool = False):
     """
@@ -24,7 +26,10 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
             percents = pd.concat([new, reference], axis=1, keys=["ref", "new"]).fillna(0)
             percents = percents / percents.sum()
         elif new.dtype != reference.dtype:
-            raise TypeError("New and reference series should be numeric or object and should have the same type")
+            raise error_msg(
+                value=None,
+                message=f'{"New and reference series should be numeric or object and should have the same type"}',
+            )
         else:
             if is_numeric_dtype(new):
                 bins = np.histogram_bin_edges(np.concatenate([reference, new]), bins="sturges")

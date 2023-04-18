@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Sequence
 
+import constant
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_numeric_dtype
@@ -50,8 +51,7 @@ class FeatureSummaryAbstract(ABC):
         if self._result is None:
             return None
         else:
-            results = pd.DataFrame.from_records([self._result[i].dict() for i in range(len(self._result))])
-            return results
+            return pd.DataFrame.from_records([self._result[i].dict() for i in range(len(self._result))])
 
 
 class FeatureSummary(FeatureSummaryAbstract):
@@ -85,7 +85,7 @@ class FeatureSummary(FeatureSummaryAbstract):
                     threshold = reference[self._feature_name].quantile(percentile) if reference is not None else None
                     statistics = MetricResults(
                         metric_type="statistics",
-                        metric_name="P" + str(100 * percentile),
+                        metric_name="P" + str(constant.HUNDRED * percentile),
                         feature_name=self._feature_name,
                         metric_value=current[self._feature_name].quantile(percentile),
                         threshold=threshold,

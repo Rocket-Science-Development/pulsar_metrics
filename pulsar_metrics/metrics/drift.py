@@ -118,18 +118,14 @@ class DriftTestMetric(AbstractMetrics):
             self._column = current[self._feature_name] if self._feature_name is not None else current
 
             test_result = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
-            pvalue = test_result.pvalue
 
-            if isinstance(alpha, (int, float)):
-                status = pvalue < alpha
-            else:
-                status = None
+            status = test_result.pvalue < alpha if isinstance(alpha, (int, float)) else None
 
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.drift.value,
                 feature_name=self._feature_name,
-                metric_value=pvalue,
+                metric_value=test_result.pvalue,
                 conf_int=None,
                 drift_status=status,
                 threshold=alpha,
