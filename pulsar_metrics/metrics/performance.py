@@ -58,13 +58,10 @@ class PerformanceMetric(AbstractMetrics):
 
         try:
             self._n_sample = current.shape[0]
-
             value = PerformanceMetricsFuncs[self._name].value(current[self._y_name], current[self._pred_name], **kwargs)
-
+            conf_int = None
             if bootstrap:
                 conf_int = self._bootstrap(current=current, n_bootstrap=n_bootstrap, alpha=alpha, seed=seed, **kwargs)
-            else:
-                conf_int = None
 
             status = compare_to_threshold(value, threshold, upper_bound)
 
@@ -99,14 +96,10 @@ class PerformanceMetric(AbstractMetrics):
         - seed (int): seed for random number generator
         - alpha (float): significance level
         """
-
-        rng = np.random.default_rng(seed)
-        n = self._n_sample
-
         values = []
-
+        rng = np.random.default_rng(seed)
         for i in range(n_bootstrap):
-            indices = rng.integers(low=0, high=n, size=n)
+            indices = rng.integers(low=0, high=self._n_sample, size=self._n_sample)
             values.append(
                 PerformanceMetricsFuncs[self._name].value(
                     current.iloc[indices][self._y_name], current.iloc[indices][self._pred_name], **kwargs
