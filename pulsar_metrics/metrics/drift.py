@@ -1,6 +1,7 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 from typing import Union
 
+import constant
 import pandas as pd
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
@@ -98,7 +99,7 @@ class DriftTestMetric(AbstractMetrics):
         self,
         current: pd.DataFrame,
         reference: pd.DataFrame,
-        alpha: float = 0.05,
+        alpha: float = constant.SIGNIFICANCE_LEVEL,
         **kwargs,
     ) -> MetricResults:
         """Evaluation function for performance metrics

@@ -33,23 +33,12 @@ class AbstractAnalyzer(ABC):
         """
 
         self._name = name
-        # self._data = data.copy(deep=True)  # Not sure I want to attach the data as an attribute ...
+        self._model_id = model_id
+        self._model_version = model_version
         self._description = description
-
-        # TODO: validation on the dataset ?
-
-        try:
-            # TODO: better handling of date format
-            # data["pred_timestamp"] = pd.to_datetime(data["pred_timestamp"])
-            self._model_id = model_id  # str(data["model_id"].unique()[0])
-            self._model_version = model_version  # str(data["model_version"].unique()[0])
-            # self._period_start = data.pred_timestamp.min()
-            # self._period_end = data.pred_timestamp.max()
-            self._metrics_list = []
-            self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
-            self._results = None
-        except Exception as e:
-            print(f"Error in initializing __init__() in the analysers base: {str(e)}")
+        self._metrics_list = []
+        self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
+        self._results = None
 
     @property
     @abstractmethod
@@ -171,7 +160,7 @@ class Analyzer(AbstractAnalyzer):
             }
         )
 
-        if len(self._metrics_list) == 0:
+        if not self._metrics_list:
             raise error_msg(
                 value=None,
                 message=f'{"The list of metrics for the analyzer is empty."}',

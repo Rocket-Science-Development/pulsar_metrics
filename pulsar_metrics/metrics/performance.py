@@ -1,6 +1,7 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 from typing import Union
 
+import constant
 import numpy as np
 import pandas as pd
 
@@ -37,9 +38,9 @@ class PerformanceMetric(AbstractMetrics):
         current: pd.DataFrame,
         reference: pd.DataFrame = None,
         bootstrap: bool = False,
-        n_bootstrap: int = 100,
-        alpha: float = 0.05,
-        seed: int = 123,
+        n_bootstrap: int = constant.BOOTSTRAP_SIZE,
+        alpha: float = constant.SIGNIFICANCE_LEVEL,
+        seed: int = constant.SEED_SIZE,
         threshold: Union[float, int, list] = None,
         upper_bound: bool = True,
         **kwargs,
@@ -51,7 +52,7 @@ class PerformanceMetric(AbstractMetrics):
         - bootstrap (bool): whether to bootstrap the metric for confidence interval calculation
         - n_bootstrap (int): number of bootstrapping samples
         - seed (int): seed for random number generator
-        - alpha (float): significance level
+        - alpha (float): significance level to measure the strength of the evidence
         - **kwargs: parameters of the function used to calculate the metric
         """
 
@@ -82,7 +83,14 @@ class PerformanceMetric(AbstractMetrics):
         except Exception as e:
             print(f"Exception in evaluate() in the PerformanceMetric class (performance): {str(e)}")
 
-    def _bootstrap(self, current: pd.DataFrame, n_bootstrap: int = 100, seed: int = 123, alpha: float = 0.05, **kwargs):
+    def _bootstrap(
+        self,
+        current: pd.DataFrame,
+        n_bootstrap: int = constant.BOOTSTRAP_SIZE,
+        seed: int = constant.SEED_SIZE,
+        alpha: float = constant.SIGNIFICANCE_LEVEL,
+        **kwargs,
+    ):
         """Function to bootstrap the metrics for confidence interval evaluation
 
         Parameters
