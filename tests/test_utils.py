@@ -2,81 +2,62 @@ import re
 import sys
 
 import pandas as pd
-from pytest import raises as pytest_raises
+import pytest
+import yaml
 
 sys.path.append("..")
 
 from pulsar_metrics.exceptions import CustomExceptionPulsarMetric as error_msg
 from pulsar_metrics.utils import *
 
-TARGET_COLUMN = "y_true"
-PREDICTION_COLUMN = "y_pred"
-DATE_COLUMN = "date"
-MODELID_COLUMN = "model_id"
+from . import TestConfiguration
 
-df = pd.DataFrame(columns=[TARGET_COLUMN, PREDICTION_COLUMN, DATE_COLUMN, MODELID_COLUMN])
+df = pd.DataFrame(
+    columns=[
+        TestConfiguration.TARGET_COLUMN,
+        TestConfiguration.PREDICTION_COLUMN,
+        TestConfiguration.DATE_COLUMN,
+        TestConfiguration.MODELID_COLUMN,
+    ]
+)
 
 # Testing dataframe validation
 # ==============================
 
 
+# Dataframe is valid
 def test_dataframe_is_valid():
     print(df.columns)
     assert validate_dataframe(data=df) == True
 
 
-def test_validate_target_is_missing():
-    with pytest_raises(error_msg, match=ERROR_MSG_MISSING_KEY):
-        validate_dataframe(data=df.drop(TARGET_COLUMN, axis=1))
-
-
-def test_validate_prediction_is_missing():
-    with pytest_raises(error_msg, match=ERROR_MSG_MISSING_KEY):
-        validate_dataframe(data=df.drop(PREDICTION_COLUMN, axis=1))
-
-
-def test_validate_date_is_missing():
-    with pytest_raises(error_msg, match=ERROR_MSG_MISSING_KEY):
-        validate_dataframe(data=df.drop(DATE_COLUMN, axis=1))
-
-
-def test_validate_modelid_is_missing():
-    with pytest_raises(error_msg, match=ERROR_MSG_MISSING_KEY):
-        validate_dataframe(data=df.drop(MODELID_COLUMN, axis=1))
+# Dataframe is missing important columns
+@pytest.mark.parametrize(
+    "missing_column",
+    [
+        TestConfiguration.TARGET_COLUMN,
+        TestConfiguration.PREDICTION_COLUMN,
+        TestConfiguration.DATE_COLUMN,
+        TestConfiguration.MODELID_COLUMN,
+    ],
+)
+def test_validate_missing_column(missing_column):
+    with pytest.raises(error_msg, match=ERROR_MSG_MISSING_KEY):
+        validate_dataframe(data=df.drop(missing_column, axis=1))
 
 
 # Testing comparison to threshold
 # ===================================
 
 
-def test_compare_to_single_threshold():
-    value = 3
-    threshold = 2
-    assert compare_to_threshold(value, threshold) == False
+# Comparing to valid thresholds
+@pytest.mark.parametrize("threshold,value,status", [(3, 1, True), (1, 3, False), ([1, 4], 3, True)])
+def test_compare_to_valid_threshold(threshold, value, status):
+    assert compare_to_threshold(value, threshold) == status
 
 
-def test_compare_to_interval_threshold():
-    value = 3
-    threshold = [1, 4]
-    assert compare_to_threshold(value, threshold) == True
-
-
-def test_invalid_threshold_with_three_elements():
-    value = 3
-    threshold = [1, 4, 6]
-    with pytest_raises(ValueError, match=re.escape(ERROR_MSG_VECTOR_THRESHOLD)):
-        compare_to_threshold(value, threshold)
-
-
-def test_invalid_threshold_with_equal_bounds():
-    value = 3
-    threshold = [1, 1]
-    with pytest_raises(ValueError, match=re.escape(ERROR_MSG_VECTOR_THRESHOLD)):
-        compare_to_threshold(value, threshold)
-
-
-def test_invalid_threshold_type():
-    value = 3
-    threshold = "a"
-    with pytest_raises(ValueError, match=re.escape(ERROR_MSG_VECTOR_THRESHOLD)):
+# Comparing to invalid thresholds
+@pytest.mark.parametrize("threshold,value", [([1, 4, 6], 3), ([1, 1], 3), ("a", 3), ([1, "2"], 1.5)])
+def test_invalid_threshold(threshold, value):
+    with pytest.raises(ValueError, match=re.escape(ERROR_MSG_VECTOR_THRESHOLD)):
         compare_to_threshold(value, threshold)
