@@ -21,17 +21,22 @@ from ..metrics.statistics import FeatureSummary
 
 
 class AbstractAnalyzer(ABC):
-
-    """Base abstract class for analyzers"""
+    """AbstractAnalyzer class for for analyzers"""
 
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None):
-        """Parameters
-        ----------
-        - name: name of the analyzer
-        - data: dataset from which the abnalyzer is defined
-        - description (Optional): description for the analyzer
-        """
+        """Constructor of the AbstractAnalyzer class
 
+        Parameters
+        ----------
+        name : str
+            The input value for name
+        model_id : str
+            The input value for model_id
+        model_version : str
+            The input value for model_version
+        description : str, optional
+            The input value for description for the analyzer
+        """
         self._name = name
         self._model_id = model_id
         self._model_version = model_version
@@ -84,18 +89,39 @@ class AbstractAnalyzer(ABC):
 
 class Analyzer(AbstractAnalyzer):
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None, **kwargs):
-        """Supercharged init method for performance metrics"""
+        """Constructor of the Analyzer class
 
+        Parameters
+        ----------
+        name : str
+            The input value for name
+        model_id : str
+            The input value for model_id
+        model_version : str
+            The input value for model_version
+        description : str, optional
+            The input value for description for the analyzer
+        kwargs :
+            keyworded variable length of arguments to a function
+
+        Returns
+        -------
+        None
+           return type of None
+        """
+        # Call the constructor of the parent class
         super().__init__(name, model_id, model_version, description)
 
     def add_performance_metrics(self, metrics_list: list, **kwargs):
-        """Adding a list of performance metrics to the analyzer"""
+        """Method to add performance metrics list to the analyzer
 
-        """Parameters
-        -----------
-        metrics_list: list of performance metrics names
+        Parameters
+        ----------
+        metrics_list : list
+            List of performance metrics names
+        kwargs :
+            keyworded variable length of arguments to a function
         """
-
         for metric_name in metrics_list:
             try:
                 if metric_name in PerformanceMetricsFuncs._member_names_:
@@ -105,11 +131,14 @@ class Analyzer(AbstractAnalyzer):
                 print(f"Error in add_performance_metrics() in the analysers base: {str(e)}")
 
     def add_drift_metrics(self, metrics_list: list, features_list: list = None):
-        """Adding a list of drift metrics to the analyzer"""
+        """Method to add drift metrics list to the analyzer
 
-        """Parameters
-        -----------
-        metrics_list: list of drift metric names
+        Parameters
+        ----------
+        metrics_list : list
+            List of performance metrics names
+        features_list : list
+            List of features for drift metrics
         """
 
         # TODO: better handling of numeric vs categorical variables
@@ -137,7 +166,17 @@ class Analyzer(AbstractAnalyzer):
                     print(f"Error in add_drift_metrics() in the analysers base: {str(e)}")
 
     def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
-        """Running the analyzer from the list of metrics"""
+        """Method run() in analyzer from the list of metrics
+
+        Parameters
+        ----------
+        current : DataFrame
+            The input current (pandas DataFrame)
+        reference : DataFrame
+            The input reference (pandas DataFrame)
+        options : dict,optional
+            List of performance metrics names
+        """
 
         ref_model_id_validation = reference.model_id == self._metadata["model_id"]
         ref_model_version_validation = reference.model_version == self._metadata["model_version"]

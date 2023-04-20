@@ -12,8 +12,18 @@ from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
 
 class DriftMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
-        """Supercharged init method for drift metrics"""
+        """Constructor of the DriftMetric class
 
+        Parameters
+        ----------
+        metric_name : str
+            The input value for metric_name
+        feature_name : str
+            The input value for feature_name
+        kwargs :
+            keyworded variable length of arguments to a function
+        """
+        # Call the constructor of the parent class
         super().__init__(metric_name)
 
         self._check_metrics_name(metric_name)
@@ -34,17 +44,26 @@ class DriftMetric(AbstractMetrics):
         upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
-        """Evaluation function for performance metrics
+        """Method evaluate() to evaluate the DriftMetric
 
         Parameters
         ----------
-        - bootstrap (bool): whether to bootstrap the metric for confidence interval calculation
-        - n_bootstrap (int): number of bootstrapping samples
-        - seed (int): seed for random number generator
-        - alpha (float): significance level
-        - **kwargs: parameters of the function used to calculate the metric
-        """
+        current : DataFrame
+                The input current (pandas DataFrame)
+        reference : DataFrame
+                The input reference (pandas DataFrame)
+        threshold : Union[list, float, int]
+                Threshold values to validate the input value
+        upper_bound : bool, optional
+                A flag used to set the upper_bound param
+        kwargs :
+                keyworded variable length of arguments to a function
 
+        Returns
+        -------
+        list
+                returns the result of the calculated DriftMetric
+        """
         try:
             ref_column = reference[self._feature_name] if self._feature_name is not None else reference
             self._column = current[self._feature_name] if self._feature_name is not None else current
@@ -71,8 +90,18 @@ class DriftMetric(AbstractMetrics):
 
 class DriftTestMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
-        """Supercharged init method for drift metrics"""
+        """Constructor of the DriftTestMetric class
 
+        Parameters
+        ----------
+        metric_name : str
+            The input value for metric_name
+        feature_name : str
+            The input value for feature_name
+        kwargs :
+            keyworded variable length of arguments to a function
+        """
+        # Call the constructor of the parent class
         super().__init__(metric_name)
 
         self._check_metrics_name(metric_name)
@@ -97,17 +126,24 @@ class DriftTestMetric(AbstractMetrics):
         alpha: float = constant.SIGNIFICANCE_LEVEL,
         **kwargs,
     ) -> MetricResults:
-        """Evaluation function for performance metrics
+        """Method  evaluate() to evaluate in DriftTestMetric
 
-        Parameters
-        ----------
-        - bootstrap (bool): whether to bootstrap the metric for confidence interval calculation
-        - n_bootstrap (int): number of bootstrapping samples
-        - seed (int): seed for random number generator
-        - alpha (float): significance level
-        - **kwargs: parameters of the function used to calculate the metric
+                Parameters
+                ----------
+                current : DataFrame
+                        The input current (pandas DataFrame)
+                reference : DataFrame
+                        The input reference (pandas DataFrame)
+        alpha : float
+            Value to define significance level
+                kwargs :
+                        keyworded variable length of arguments to a function
+
+                Returns
+                -------
+                list
+                         returns the result of the calculated DriftMetric
         """
-
         try:
             ref_column = reference[self._feature_name] if self._feature_name is not None else reference
             self._column = current[self._feature_name] if self._feature_name is not None else current

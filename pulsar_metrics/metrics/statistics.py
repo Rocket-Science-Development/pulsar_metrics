@@ -14,21 +14,33 @@ _numeric_dict = {"mean": np.mean, "median": np.median, "std": np.std, "skewness"
 
 
 class FeatureSummaryAbstract(ABC):
-
-    """Base abstract class for feature summary statistics"""
+    """FeatureSummaryAbstract class for feature summary statistics"""
 
     def __init__(self, feature_name: str):
-        """Parameters
-        ----------
-        - feature_name: name of the feature
-        """
+        """constructor of the FeatureSummaryAbstract class
 
-        self._feature_name = feature_name
+        Parameters
+        ----------
+        feature_name : str
+            The input feature_name for representing name of feature
+        """
         self._result = []
+        self._feature_name = feature_name
 
     @property
     @abstractmethod
     def evaluate(self) -> Sequence[MetricResults]:
+        """Abstract method evaluate() for FeatureSummaryAbstract
+
+        Raises
+        ------
+        ValueError if input value have not correct
+
+        Returns
+        -------
+        list
+            returns the result of the calculated metric
+        """
         raise error_msg(
             value=None,
             message=f'{"NotImplementedError in evaluate() in FeatureSummaryAbstract class(statistics)"}',
@@ -58,13 +70,14 @@ class FeatureSummary(FeatureSummaryAbstract):
     def __init__(self, feature_name: str):
         """Supercharged init method for feature summary statistics"""
 
+        # Call the constructor of the parent class
         super().__init__(feature_name)
 
     def evaluate(
         self, current: pd.DataFrame, reference: pd.DataFrame = None, percentiles: list[float] = [0.25, 0.95]
     ) -> Sequence[MetricResults]:
         try:
-            # Checking that the features exists in the current dataframe
+            # Check whether features name exists in the current dataframe
             self._check_feature_name(current)
 
             if is_numeric_dtype(current[self._feature_name]):
