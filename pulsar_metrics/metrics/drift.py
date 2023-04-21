@@ -115,7 +115,7 @@ class DriftTestMetric(AbstractMetrics):
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
             raise error_msg(
-                value=DriftMetricsFuncs._member_names_,
+                value=name,
                 message=f'{"InvalidInput: unknown metric key {name} given."}',
             )
 

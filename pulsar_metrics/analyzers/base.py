@@ -74,14 +74,14 @@ class AbstractAnalyzer(ABC):
         return result
 
     def results_to_pandas(self):
-        if self._results is None:
-            return None
-        else:
+        result = None
+        if self._results is not None:
             results = pd.DataFrame.from_records([self._results[i].dict() for i in range(len(self._results))])
             for key, value in self._metadata.items():
                 if key not in ["name", "description"]:
                     results[key] = value
-            return results
+
+        return result
 
     def log_results(self):
         pass
@@ -200,7 +200,7 @@ class Analyzer(AbstractAnalyzer):
         if not self._metrics_list:
             raise error_msg(
                 value=None,
-                message=f'{"The list of metrics for the analyzer is empty."}',
+                message=f'{"The metrics list for the analyzer is empty."}',
             )
         elif df_reference.shape[0] == 0:
             raise error_msg(
