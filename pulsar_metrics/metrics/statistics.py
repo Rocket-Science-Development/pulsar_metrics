@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Sequence
 
+import constant
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_numeric_dtype
@@ -13,21 +14,33 @@ _numeric_dict = {"mean": np.mean, "median": np.median, "std": np.std, "skewness"
 
 
 class FeatureSummaryAbstract(ABC):
-
-    """Base abstract class for feature summary statistics"""
+    """FeatureSummaryAbstract class for feature summary statistics"""
 
     def __init__(self, feature_name: str):
-        """Parameters
-        ----------
-        - feature_name: name of the feature
-        """
+        """constructor of the FeatureSummaryAbstract class
 
-        self._feature_name = feature_name
+        Parameters
+        ----------
+        feature_name : str
+            The input feature_name for representing name of feature
+        """
         self._result = []
+        self._feature_name = feature_name
 
     @property
     @abstractmethod
     def evaluate(self) -> Sequence[MetricResults]:
+        """Abstract method evaluate() for FeatureSummaryAbstract
+
+        Raises
+        ------
+        ValueError if input value have not correct
+
+        Returns
+        -------
+        list
+            returns the result of the calculated metric
+        """
         raise error_msg(
             value=None,
             message=f'{"NotImplementedError in evaluate() in FeatureSummaryAbstract class(statistics)"}',
@@ -50,21 +63,21 @@ class FeatureSummaryAbstract(ABC):
         if self._result is None:
             return None
         else:
-            results = pd.DataFrame.from_records([self._result[i].dict() for i in range(len(self._result))])
-            return results
+            return pd.DataFrame.from_records([self._result[i].dict() for i in range(len(self._result))])
 
 
 class FeatureSummary(FeatureSummaryAbstract):
     def __init__(self, feature_name: str):
         """Supercharged init method for feature summary statistics"""
 
+        # Call the constructor of the parent class
         super().__init__(feature_name)
 
     def evaluate(
         self, current: pd.DataFrame, reference: pd.DataFrame = None, percentiles: list[float] = [0.25, 0.95]
     ) -> Sequence[MetricResults]:
         try:
-            # Checking that the features exists in the current dataframe
+            # Check whether features name exists in the current dataframe
             self._check_feature_name(current)
 
             if is_numeric_dtype(current[self._feature_name]):
@@ -85,7 +98,7 @@ class FeatureSummary(FeatureSummaryAbstract):
                     threshold = reference[self._feature_name].quantile(percentile) if reference is not None else None
                     statistics = MetricResults(
                         metric_type="statistics",
-                        metric_name="P" + str(100 * percentile),
+                        metric_name="P" + str(constant.HUNDRED * percentile),
                         feature_name=self._feature_name,
                         metric_value=current[self._feature_name].quantile(percentile),
                         threshold=threshold,

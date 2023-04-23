@@ -12,17 +12,22 @@ from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
 
 class DriftMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
-        """Supercharged init method for drift metrics"""
+        """Constructor of the DriftMetric class
 
+        Parameters
+        ----------
+        metric_name : str
+            The input value for metric_name
+        feature_name : str
+            The input value for feature_name
+        kwargs :
+            keyworded variable length of arguments to a function
+        """
+        # Call the constructor of the parent class
         super().__init__(metric_name)
 
         self._check_metrics_name(metric_name)
-
-        try:
-            self._feature_name = feature_name
-
-        except Exception as e:
-            print(f"Exception in initializing __init__() in the metrics drift: {str(e)}")
+        self._feature_name = feature_name
 
     def _check_metrics_name(self, name: str):
         if name not in DriftMetricsFuncs._member_names_:
@@ -39,17 +44,26 @@ class DriftMetric(AbstractMetrics):
         upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
-        """Evaluation function for performance metrics
+        """Method evaluate() to evaluate the DriftMetric
 
         Parameters
         ----------
-        - bootstrap (bool): whether to bootstrap the metric for confidence interval calculation
-        - n_bootstrap (int): number of bootstrapping samples
-        - seed (int): seed for random number generator
-        - alpha (float): significance level
-        - **kwargs: parameters of the function used to calculate the metric
-        """
+        current : DataFrame
+                The input current (pandas DataFrame)
+        reference : DataFrame
+                The input reference (pandas DataFrame)
+        threshold : Union[list, float, int]
+                Threshold values to validate the input value
+        upper_bound : bool, optional
+                A flag used to set the upper_bound param
+        kwargs :
+                keyworded variable length of arguments to a function
 
+        Returns
+        -------
+        list
+                returns the result of the calculated DriftMetric
+        """
         try:
             ref_column = reference[self._feature_name] if self._feature_name is not None else reference
             self._column = current[self._feature_name] if self._feature_name is not None else current
@@ -76,8 +90,18 @@ class DriftMetric(AbstractMetrics):
 
 class DriftTestMetric(AbstractMetrics):
     def __init__(self, metric_name: str, feature_name: str, **kwargs):
-        """Supercharged init method for drift metrics"""
+        """Constructor of the DriftTestMetric class
 
+        Parameters
+        ----------
+        metric_name : str
+            The input value for metric_name
+        feature_name : str
+            The input value for feature_name
+        kwargs :
+            keyworded variable length of arguments to a function
+        """
+        # Call the constructor of the parent class
         super().__init__(metric_name)
 
         self._check_metrics_name(metric_name)
@@ -91,7 +115,7 @@ class DriftTestMetric(AbstractMetrics):
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
             raise error_msg(
-                value=DriftMetricsFuncs._member_names_,
+                value=name,
                 message=f'{"InvalidInput: unknown metric key {name} given."}',
             )
 
@@ -102,34 +126,37 @@ class DriftTestMetric(AbstractMetrics):
         alpha: float = constant.SIGNIFICANCE_LEVEL,
         **kwargs,
     ) -> MetricResults:
-        """Evaluation function for performance metrics
+        """Method  evaluate() to evaluate in DriftTestMetric
 
-        Parameters
-        ----------
-        - bootstrap (bool): whether to bootstrap the metric for confidence interval calculation
-        - n_bootstrap (int): number of bootstrapping samples
-        - seed (int): seed for random number generator
-        - alpha (float): significance level
-        - **kwargs: parameters of the function used to calculate the metric
+                Parameters
+                ----------
+                current : DataFrame
+                        The input current (pandas DataFrame)
+                reference : DataFrame
+                        The input reference (pandas DataFrame)
+        alpha : float
+            Value to define significance level
+                kwargs :
+                        keyworded variable length of arguments to a function
+
+                Returns
+                -------
+                list
+                         returns the result of the calculated DriftMetric
         """
-
         try:
             ref_column = reference[self._feature_name] if self._feature_name is not None else reference
             self._column = current[self._feature_name] if self._feature_name is not None else current
 
             test_result = DriftTestMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
-            pvalue = test_result.pvalue
 
-            if isinstance(alpha, (int, float)):
-                status = pvalue < alpha
-            else:
-                status = None
+            status = test_result.pvalue < alpha if isinstance(alpha, (int, float)) else None
 
             self._result = MetricResults(
                 metric_name=self._name,
                 metric_type=MetricsType.drift.value,
                 feature_name=self._feature_name,
-                metric_value=pvalue,
+                metric_value=test_result.pvalue,
                 conf_int=None,
                 drift_status=status,
                 threshold=alpha,

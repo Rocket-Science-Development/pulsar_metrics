@@ -5,18 +5,31 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from sklearn.metrics.pairwise import pairwise_kernels
 
+from ..exceptions import CustomExceptionPulsarMetric as error_msg
+
 
 def get_population_percentages(new: pd.Series, reference: pd.Series, binned: bool = False):
-    """
-    This function returns population percentages of the two pandas series (new,reference)
+    """Return the population percentages of the two pandas series[new,reference]
 
     Parameters
-        ----------
-        - new: pandas Series of the new population
-        - reference: pandas Series of the reference population
-        - binned: if the population values have already been binned into identical bins.
+    ----------
+    new : pd.Series
+        The input pandas Series of the new population
+    reference : pd.Series
+        The input pandas Series of the reference population
+    binned : bool, optional
+        if the population values have already been binned into identical bins.
         If the two pandas series have different lengths
         missing indices are imputed with zeros.
+
+    Raises
+    ------
+        ValueError if input value have not correct
+
+    Returns
+    -------
+    pd.Series
+        returns population percentages of the two pandas series (new,reference)
     """
 
     try:
@@ -24,7 +37,10 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
             percents = pd.concat([new, reference], axis=1, keys=["ref", "new"]).fillna(0)
             percents = percents / percents.sum()
         elif new.dtype != reference.dtype:
-            raise TypeError("New and reference series should be numeric or object and should have the same type")
+            raise error_msg(
+                value=None,
+                message=f'{"New and reference series should be numeric or object and should have the same type"}',
+            )
         else:
             if is_numeric_dtype(new):
                 bins = np.histogram_bin_edges(np.concatenate([reference, new]), bins="sturges")
@@ -39,8 +55,27 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
 
 
 def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False):
-    """
-    Calculate the Population Stability Index (PSI) between two samples(new,reference)
+    """Calculate the Population Stability Index (PSI) between two samples
+
+    Parameters
+    ----------
+    new : pd.Series
+        The input pandas Series of the new population
+    reference : pd.Series
+        The input pandas Series of the reference population
+    binned : bool, optional
+        if the population values have already been binned into identical bins.
+        If the two pandas series have different lengths
+        missing indices are imputed with zeros.
+
+    Raises
+    ------
+        ValueError if input value have not correct
+
+    Returns
+    -------
+    pd.Series
+        returns Population Stability Index (PSI) of two pandas series (new,reference)
     """
 
     percents = get_population_percentages(new, reference, binned)
@@ -52,8 +87,23 @@ def population_stability_index(new: pd.Series, reference: pd.Series, binned: boo
 
 
 def max_mean_discrepency(new: pd.DataFrame, reference: pd.DataFrame, kernel="linear", **kwargs):
-    """
-    Calculate the Maximum Mean Discrepency(MMD) between two samples(new,reference)
+    """Calculate the Maximum Mean Discrepency(MMD) between two samples[new,reference]
+
+    Parameters
+    ----------
+    new : pd.DataFrame
+        The input pandas Series of the new population
+    reference : pd.DataFrame
+        The input pandas Series of the reference population
+    kernel : str, optional
+        represent linear transformation
+    kwargs :
+        keyworded variable length of arguments to a function
+
+    Returns
+    -------
+    pd.DataFrame
+        returns Maximum Mean Discrepency(MMD) between two samples[new,reference]
     """
 
     if isinstance(new, pd.Series):
