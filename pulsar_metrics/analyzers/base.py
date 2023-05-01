@@ -21,17 +21,22 @@ from ..metrics.statistics import FeatureSummary
 
 
 class AbstractAnalyzer(ABC):
-
-    """Base abstract class for analyzers"""
+    """AbstractAnalyzer class for for analyzers"""
 
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None):
-        """Parameters
-        ----------
-        - name: name of the analyzer
-        - data: dataset from which the abnalyzer is defined
-        - description (Optional): description for the analyzer
-        """
+        """Constructor of the AbstractAnalyzer class
 
+        Parameters
+        ----------
+        name : str
+            The input value for name
+        model_id : str
+            The input value for model_id
+        model_version : str
+            The input value for model_version
+        description : str, optional
+            The input value for description for the analyzer
+        """
         self._name = name
         self._model_id = model_id
         self._model_version = model_version
@@ -45,7 +50,7 @@ class AbstractAnalyzer(ABC):
     def run(self, current: pd.DataFrame, reference: pd.DataFrame):
         raise error_msg(
             value=None,
-            message=f'{"NotImplementedError in run() in analyzers base"}',
+            message=f'{"NotImplemented Error in run() in analyzers base"}',
         )
 
     def schedule(self):
@@ -64,20 +69,19 @@ class AbstractAnalyzer(ABC):
         return self._results
 
     def results_to_json(self):
-        if self._results is None:
-            return {}
-        else:
-            return [result.json() for result in self._results]
+        empty_dict = {}
+        result = empty_dict if self._results is None else [result.json() for result in self._results]
+        return result
 
     def results_to_pandas(self):
-        if self._results is None:
-            return None
-        else:
+        result = None
+        if self._results is not None:
             results = pd.DataFrame.from_records([self._results[i].dict() for i in range(len(self._results))])
             for key, value in self._metadata.items():
                 if key not in ["name", "description"]:
                     results[key] = value
-            return results
+
+        return result
 
     def log_results(self):
         pass
@@ -85,18 +89,39 @@ class AbstractAnalyzer(ABC):
 
 class Analyzer(AbstractAnalyzer):
     def __init__(self, name: str, model_id: str, model_version: str, description: str = None, **kwargs):
-        """Supercharged init method for performance metrics"""
+        """Constructor of the Analyzer class
 
+        Parameters
+        ----------
+        name : str
+            The input value for name
+        model_id : str
+            The input value for model_id
+        model_version : str
+            The input value for model_version
+        description : str, optional
+            The input value for description for the analyzer
+        kwargs :
+            keyworded variable length of arguments to a function
+
+        Returns
+        -------
+        None
+           return type of None
+        """
+        # Call the constructor of the parent class
         super().__init__(name, model_id, model_version, description)
 
     def add_performance_metrics(self, metrics_list: list, **kwargs):
-        """Adding a list of performance metrics to the analyzer"""
+        """Method to add performance metrics list to the analyzer
 
-        """Parameters
-        -----------
-        metrics_list: list of performance metrics names
+        Parameters
+        ----------
+        metrics_list : list
+            List of performance metrics names
+        kwargs :
+            keyworded variable length of arguments to a function
         """
-
         for metric_name in metrics_list:
             try:
                 if metric_name in PerformanceMetricsFuncs._member_names_:
@@ -106,48 +131,60 @@ class Analyzer(AbstractAnalyzer):
                 print(f"Error in add_performance_metrics() in the analysers base: {str(e)}")
 
     def add_drift_metrics(self, metrics_list: list, features_list: list = None):
-        """Adding a list of drift metrics to the analyzer"""
+        """Method to add drift metrics list to the analyzer
 
-        """Parameters
-        -----------
-        metrics_list: list of drift metric names
+        Parameters
+        ----------
+        metrics_list : list
+            List of performance metrics names
+        features_list : list
+            List of features for drift metrics
         """
 
         # TODO: better handling of numeric vs categorical variables
         if features_list is None:
-            features_list = np.setdiff1d(
-                self._data.select_dtypes("number").columns, ["y_true", "y_pred", "y_pred_proba", "model_id", "model_version"]
-            )
+            input_array = self._data.select_dtypes("number").columns
+            input_comparison_array = ["y_true", "y_pred", "y_pred_proba", "model_id", "model_version"]
+
+            features_list = np.setdiff1d(input_array, input_comparison_array)
 
         for metric_name in metrics_list:
             for feature in features_list:
                 try:
                     if metric_name in DriftMetricsFuncs._member_names_:
                         metric = DriftMetric(metric_name=metric_name, feature_name=feature)
+                        self._metrics_list.append(metric)
                     elif metric_name in DriftTestMetricsFuncs._member_names_:
                         metric = DriftTestMetric(metric_name=metric_name, feature_name=feature)
+                        self._metrics_list.append(metric)
                     else:
-                        metric = None
                         raise error_msg(
                             value=metric_name,
                             message=f'{"unknown drift metric key {metric_name} given."}',
                         )
-                    if metric is not None:
-                        self._metrics_list.append(metric)
-                        print("Drift metric '{}' for feature '{}' added to the analyzer list".format(metric_name, feature))
                 except Exception as e:
                     print(f"Error in add_drift_metrics() in the analysers base: {str(e)}")
 
     def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
-        """Running the analyzer from the list of metrics"""
+        """Method run() in analyzer from the list of metrics
 
-        df_reference = reference.loc[
-            (reference.model_id == self._metadata["model_id"]) & ((reference.model_version == self._metadata["model_version"]))
-        ]
+        Parameters
+        ----------
+        current : DataFrame
+            The input current (pandas DataFrame)
+        reference : DataFrame
+            The input reference (pandas DataFrame)
+        options : dict,optional
+            List of performance metrics names
+        """
 
-        df_current = current.loc[
-            (current.model_id == self._metadata["model_id"]) & ((current.model_version == self._metadata["model_version"]))
-        ]
+        ref_model_id_validation = reference.model_id == self._metadata["model_id"]
+        ref_model_version_validation = reference.model_version == self._metadata["model_version"]
+        df_reference = reference.loc[ref_model_id_validation & ref_model_version_validation]
+
+        cur_model_id_validation = current.model_id == self._metadata["model_id"]
+        cur_model_version_validation = current.model_version == self._metadata["model_version"]
+        df_current = current.loc[cur_model_id_validation & cur_model_version_validation]
 
         df_current["pred_timestamp"] = pd.to_datetime(df_current["pred_timestamp"])
 
@@ -163,7 +200,7 @@ class Analyzer(AbstractAnalyzer):
         if not self._metrics_list:
             raise error_msg(
                 value=None,
-                message=f'{"The list of metrics for the analyzer is empty."}',
+                message=f'{"The metrics list for the analyzer is empty."}',
             )
         elif df_reference.shape[0] == 0:
             raise error_msg(
@@ -178,7 +215,7 @@ class Analyzer(AbstractAnalyzer):
         else:
             try:
                 self._results = []
-                # Summary statistics. is it better to do it on all features by default or allow the user to chose which features
+                # Summary statistics. Recommended all features for users (by default) otherwise configurable based on perferences
                 for feature_name in current.columns:
                     statistics = FeatureSummary(feature_name=feature_name)
                     statistics.evaluate(current, reference)
@@ -193,9 +230,9 @@ class Analyzer(AbstractAnalyzer):
                         else:
                             raise error_msg(
                                 value=None,
-                                message=f'{"The dataset contains no ground truth for performance assessment"}',
+                                message=f'{"Dataset has no ground truth for performance assessment"}',
                             )
 
                     self._results.append(metric._result)
             except Exception as e:
-                print(f"Exception in run() in the Analyzer class (base): {str(e)}")
+                print(f"Exception in run() in the analyzers class (base): {str(e)}")

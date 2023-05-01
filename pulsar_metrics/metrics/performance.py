@@ -13,8 +13,21 @@ from .enums import PerformanceMetricsFuncs
 
 class PerformanceMetric(AbstractMetrics):
     def __init__(self, metric_name: str, **kwargs):
-        """Supercharged init method for performance metrics"""
+        """Constructor of the PerformanceMetric class
 
+        Parameters
+        ----------
+        feature_name : str
+            The input feature_name for representing name of feature
+        kwargs :
+            keyworded variable length of arguments to a function
+
+        Raises
+        ------
+        TypeError  if input value type are wrong
+        """
+
+        # Call the constructor of the parent class
         super().__init__(metric_name)
 
         self._check_metrics_name(metric_name)
@@ -45,26 +58,39 @@ class PerformanceMetric(AbstractMetrics):
         upper_bound: bool = True,
         **kwargs,
     ) -> MetricResults:
-        """Evaluation function for performance metrics
+        """Method evaluate() to evaluate the metrics performance
 
         Parameters
         ----------
-        - bootstrap (bool): whether to bootstrap the metric for confidence interval calculation
-        - n_bootstrap (int): number of bootstrapping samples
-        - seed (int): seed for random number generator
-        - alpha (float): significance level to measure the strength of the evidence
-        - **kwargs: parameters of the function used to calculate the metric
+        current : DataFrame
+            The input current (pandas DataFrame)
+        reference : DataFrame
+            The input reference (pandas DataFrame)
+        bootstrap : bool
+            Boolean flag set to  bootstrap the metric for confidence interval calculation
+        n_bootstrap : int
+            Number of bootstrapping samples
+        alpha : float
+            Value to define significance level
+        seed : int
+            seed value for random number generator
+        threshold : Union[list, float, int]
+            Threshold values to validate the input value
+        kwargs :
+            keyworded variable length of arguments to a function
+
+        Returns
+        -------
+        list
+             returns the result of the calculated metric
         """
 
         try:
             self._n_sample = current.shape[0]
-
             value = PerformanceMetricsFuncs[self._name].value(current[self._y_name], current[self._pred_name], **kwargs)
-
+            conf_int = None
             if bootstrap:
                 conf_int = self._bootstrap(current=current, n_bootstrap=n_bootstrap, alpha=alpha, seed=seed, **kwargs)
-            else:
-                conf_int = None
 
             status = compare_to_threshold(value, threshold, upper_bound)
 
@@ -91,22 +117,26 @@ class PerformanceMetric(AbstractMetrics):
         alpha: float = constant.SIGNIFICANCE_LEVEL,
         **kwargs,
     ):
-        """Function to bootstrap the metrics for confidence interval evaluation
+        """Method to bootstrap the metrics for confidence interval evaluation
 
         Parameters
         ----------
-        - n_bootstrap (int): number of bootstrapping samples
-        - seed (int): seed for random number generator
-        - alpha (float): significance level
+        current : DataFrame
+            The input data (pandas DataFrame)
+        n_bootstrap : int
+            Number of bootstrapping samples
+        seed : int
+            seed value for random number generator
+        alpha : float
+            value to define significance level
+        kwargs :
+            keyworded variable length of arguments to a function
         """
 
-        rng = np.random.default_rng(seed)
-        n = self._n_sample
-
         values = []
-
+        rng = np.random.default_rng(seed)
         for i in range(n_bootstrap):
-            indices = rng.integers(low=0, high=n, size=n)
+            indices = rng.integers(low=0, high=self._n_sample, size=self._n_sample)
             values.append(
                 PerformanceMetricsFuncs[self._name].value(
                     current.iloc[indices][self._y_name], current.iloc[indices][self._pred_name], **kwargs

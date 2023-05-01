@@ -19,7 +19,6 @@ from .enums import (
 
 
 class MetricResults(BaseModel):
-
     """Data structure for the results of a metric"""
 
     metric_type: str
@@ -54,16 +53,16 @@ class MetricResults(BaseModel):
 
 
 class AbstractMetrics(ABC):
-
-    """Base abstract class for metricsa"""
+    """AbstractMetrics class for for metric"""
 
     def __init__(self, metric_name: str):
-        """Parameters
-        ----------
-        - name: name of the metrics
-        - data: dataset from which the metric is calculated
-        """
+        """Constructor of the AbstractMetrics class
 
+        Parameters
+        ----------
+        metric_name : str
+            The input value for metric_name
+        """
         self._name = metric_name
 
     @property
@@ -82,8 +81,6 @@ class AbstractMetrics(ABC):
 
 
 # TODO: method to compare the metrics value to single value or interval thresholds
-
-
 def CustomMetric(func):
     """Decorator for custom metrics"""
 
