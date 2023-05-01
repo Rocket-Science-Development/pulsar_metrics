@@ -60,5 +60,5 @@ def test_compare_to_valid_threshold(input):
 # Comparing to invalid thresholds
 @pytest.mark.parametrize("input", input_data["utils_invalid_threshold"])
 def test_invalid_threshold(input):
-    with pytest.raises(ValueError, match=re.escape(ERROR_MSG_VECTOR_THRESHOLD)):
+    with pytest.raises(error_msg, match=re.escape(ERROR_MSG_VECTOR_THRESHOLD)):
         compare_to_threshold(input["value"], input["threshold"])
