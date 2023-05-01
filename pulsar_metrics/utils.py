@@ -54,6 +54,7 @@ def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: st
         print("Input dataframe is validated in validate_dataframe()!")
         return True
 
+
 def compare_to_threshold(value: float, threshold: Union[list, Number], upper_bound=True):
     """Get input value status comparing with threshold values[Min,Max]
 
@@ -83,8 +84,8 @@ def compare_to_threshold(value: float, threshold: Union[list, Number], upper_bou
         status = True if (min(threshold) < value < max(threshold)) else False
     else:
         raise error_msg(
-                value=None,
-                message=ERROR_MSG_VECTOR_THRESHOLD,
-            )
+            value=None,
+            message=ERROR_MSG_VECTOR_THRESHOLD,
+        )
 
     return status
