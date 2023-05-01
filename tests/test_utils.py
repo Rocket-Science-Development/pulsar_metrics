@@ -48,16 +48,17 @@ def test_validate_missing_column(missing_column):
 
 # Testing comparison to threshold
 # ===================================
+input_data = TestConfiguration.get_test_data()
 
 
 # Comparing to valid thresholds
-@pytest.mark.parametrize("threshold,value,status", [(3, 1, True), (1, 3, False), ([1, 4], 3, True)])
-def test_compare_to_valid_threshold(threshold, value, status):
-    assert compare_to_threshold(value, threshold) == status
+@pytest.mark.parametrize("input", input_data["utils_valid_threshold"])
+def test_compare_to_valid_threshold(input):
+    assert compare_to_threshold(input["value"], input["threshold"]) == input["status"]
 
 
 # Comparing to invalid thresholds
-@pytest.mark.parametrize("threshold,value", [([1, 4, 6], 3), ([1, 1], 3), ("a", 3), ([1, "2"], 1.5)])
-def test_invalid_threshold(threshold, value):
+@pytest.mark.parametrize("input", input_data["utils_invalid_threshold"])
+def test_invalid_threshold(input):
     with pytest.raises(ValueError, match=re.escape(ERROR_MSG_VECTOR_THRESHOLD)):
-        compare_to_threshold(value, threshold)
+        compare_to_threshold(input["value"], input["threshold"])
