@@ -1,3 +1,4 @@
+from numbers import Number
 from typing import Union
 
 import pandas as pd
@@ -54,14 +55,14 @@ def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: st
         return True
 
 
-def compare_to_threshold(value: float, threshold: Union[list, float, int], upper_bound=True):
+def compare_to_threshold(value: float, threshold: Union[list, Number], upper_bound=True):
     """Get input value status comparing with threshold values[Min,Max]
 
     Parameters
     ----------
     value : float
         The input value for comparision
-    threshold : Union[list, float, int]
+    threshold : Union[list, Number]
         Threshold values to validate the input value
     upper_bound : bool, optional
         A flag used to set the upper_bound param
@@ -77,17 +78,14 @@ def compare_to_threshold(value: float, threshold: Union[list, float, int], upper
     """
     status = None
 
-    try:
-        if isinstance(threshold, (float, int)):
-            status = value < threshold if upper_bound else threshold < value
-        elif isinstance(threshold, list):
-            status = True if (len(threshold) == 2) and (min(threshold) < value < max(threshold)) else False
-        else:
-            raise error_msg(
-                value=None,
-                message=ERROR_MSG_VECTOR_THRESHOLD,
-            )
+    if isinstance(threshold, Number):
+        status = value < threshold if upper_bound else threshold < value
+    elif isinstance(threshold, list) and (len(set(threshold)) == 2) and all(isinstance(i, Number) for i in threshold):
+        status = True if (min(threshold) < value < max(threshold)) else False
+    else:
+        raise error_msg(
+            value=None,
+            message=ERROR_MSG_VECTOR_THRESHOLD,
+        )
 
-        return status
-    except Exception as e:
-        print(f"Exception caught for ValueError in compare_to_threshold():: {str(e)}")
+    return status

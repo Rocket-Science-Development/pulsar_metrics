@@ -1,0 +1,50 @@
+{
+  "utils_valid_threshold": [
+    {
+      "threshold": 3,
+      "value": 1,
+      "status": 1
+    },
+    {
+      "threshold": 1,
+      "value": 3,
+      "status": 0
+    },
+    {
+      "threshold": [
+        1,
+        4
+      ],
+      "value": 3,
+      "status": 1
+    }
+  ],
+  "utils_invalid_threshold": [
+    {
+      "threshold": [
+        1,
+        4,
+        6
+      ],
+      "value": 3
+    },
+    {
+      "threshold": [
+        1,
+        1
+      ],
+      "value": 3
+    },
+    {
+      "threshold": "a",
+      "value": 3
+    },
+    {
+      "threshold": [
+        1,
+        "2"
+      ],
+      "value": 1.5
+    }
+  ]
+}
