@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Sequence
 
-import constant
+from .constant import HUNDRED
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_numeric_dtype
@@ -98,7 +98,7 @@ class FeatureSummary(FeatureSummaryAbstract):
                     threshold = reference[self._feature_name].quantile(percentile) if reference is not None else None
                     statistics = MetricResults(
                         metric_type="statistics",
-                        metric_name="P" + str(constant.HUNDRED * percentile),
+                        metric_name="P" + str(HUNDRED * percentile),
                         feature_name=self._feature_name,
                         metric_value=current[self._feature_name].quantile(percentile),
                         threshold=threshold,

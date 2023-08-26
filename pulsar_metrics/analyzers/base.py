@@ -74,14 +74,14 @@ class AbstractAnalyzer(ABC):
         return result
 
     def results_to_pandas(self):
-        result = None
+        results = None
         if self._results is not None:
             results = pd.DataFrame.from_records([self._results[i].dict() for i in range(len(self._results))])
             for key, value in self._metadata.items():
-                if key not in ["name", "description"]:
+                if key not in ["name", "description", "options"]:
                     results[key] = value
 
-        return result
+        return results
 
     def log_results(self):
         pass
@@ -111,6 +111,23 @@ class Analyzer(AbstractAnalyzer):
         """
         # Call the constructor of the parent class
         super().__init__(name, model_id, model_version, description)
+
+    def add_custom_metrics(self, metrics_list: list, **kwargs):
+        """Method to add performance metrics list to the analyzer
+
+        Parameters
+        ----------
+        metrics_list : list
+            List of performance metrics names
+        kwargs :
+            keyworded variable length of arguments to a function
+        """
+        for metric in metrics_list:
+            try:
+                if type(metric).__name__ == "CustomClass":
+                    self._metrics_list.append(metric)
+            except Exception as e:
+                print(f"Error in add_custom_metrics() in the analysers base: {str(e)}")
 
     def add_performance_metrics(self, metrics_list: list, **kwargs):
         """Method to add performance metrics list to the analyzer
@@ -232,6 +249,8 @@ class Analyzer(AbstractAnalyzer):
                                 value=None,
                                 message=f'{"Dataset has no ground truth for performance assessment"}',
                             )
+                    elif type(metric).__name__ == "CustomClass":
+                        metric.evaluate(current=df_current, reference=df_reference, **kwargs)
 
                     self._results.append(metric._result)
             except Exception as e:
