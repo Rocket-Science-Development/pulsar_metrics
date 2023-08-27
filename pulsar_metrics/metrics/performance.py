@@ -1,13 +1,13 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 from typing import Union
 
-import constant
 import numpy as np
 import pandas as pd
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
 from .base import AbstractMetrics, MetricResults, MetricsType
+from .constant import BOOTSTRAP_SIZE, SEED_SIZE, SIGNIFICANCE_LEVEL
 from .enums import PerformanceMetricsFuncs
 
 
@@ -51,9 +51,9 @@ class PerformanceMetric(AbstractMetrics):
         current: pd.DataFrame,
         reference: pd.DataFrame = None,
         bootstrap: bool = False,
-        n_bootstrap: int = constant.BOOTSTRAP_SIZE,
-        alpha: float = constant.SIGNIFICANCE_LEVEL,
-        seed: int = constant.SEED_SIZE,
+        n_bootstrap: int = BOOTSTRAP_SIZE,
+        alpha: float = SIGNIFICANCE_LEVEL,
+        seed: int = SEED_SIZE,
         threshold: Union[float, int, list] = None,
         upper_bound: bool = True,
         **kwargs,
@@ -112,9 +112,9 @@ class PerformanceMetric(AbstractMetrics):
     def _bootstrap(
         self,
         current: pd.DataFrame,
-        n_bootstrap: int = constant.BOOTSTRAP_SIZE,
-        seed: int = constant.SEED_SIZE,
-        alpha: float = constant.SIGNIFICANCE_LEVEL,
+        n_bootstrap: int = BOOTSTRAP_SIZE,
+        seed: int = SEED_SIZE,
+        alpha: float = SIGNIFICANCE_LEVEL,
         **kwargs,
     ):
         """Method to bootstrap the metrics for confidence interval evaluation

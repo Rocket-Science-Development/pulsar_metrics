@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 # from datetime import datetime
 from typing import Union
 
+import pandas as pd
+
 # import pandas as pd
 from pydantic import BaseModel, validator
 
@@ -89,8 +91,8 @@ def CustomMetric(func):
             def __init__(self, metric_name):
                 super().__init__(metric_name)
 
-            def evaluate(self, **kwargs):
-                value = func(**kwargs)
+            def evaluate(self, current: pd.DataFrame, reference: pd.DataFrame = None, **kwargs):
+                value = func(current, reference, **kwargs)
                 threshold = kwargs.get("threshold", None)
                 upper_bound = kwargs.get("upper_bound", True)
 

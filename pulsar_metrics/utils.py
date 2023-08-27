@@ -82,6 +82,8 @@ def compare_to_threshold(value: float, threshold: Union[list, Number], upper_bou
         status = value < threshold if upper_bound else threshold < value
     elif isinstance(threshold, list) and (len(set(threshold)) == 2) and all(isinstance(i, Number) for i in threshold):
         status = True if (min(threshold) < value < max(threshold)) else False
+    elif threshold is None:
+        status = None
     else:
         raise error_msg(
             value=None,
