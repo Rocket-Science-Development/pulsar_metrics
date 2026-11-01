@@ -3,7 +3,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from pandas.core.dtypes.common import is_numeric_dtype
+from pandas.api.types import is_bool_dtype, is_numeric_dtype
 from scipy.stats import kurtosis, skew
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
@@ -78,7 +78,8 @@ class FeatureSummary(FeatureSummaryAbstract):
             # Check whether features name exists in the current dataframe
             self._check_feature_name(current)
 
-            if is_numeric_dtype(current[self._feature_name]):
+            column = current[self._feature_name]
+            if is_numeric_dtype(column) and not is_bool_dtype(column):
                 # Iterating through the list of functions for numerical features
                 for name, func in _numeric_dict.items():
                     threshold = func(reference[self._feature_name]) if reference is not None else None
@@ -104,8 +105,9 @@ class FeatureSummary(FeatureSummaryAbstract):
                     self._result.append(statistics)
             else:
                 # For now only the most frequent category is calculated
-                category_top = current[self._feature_name].value_counts().index[0]
-                threshold = reference[self._feature_name].value_counts().index[0] if reference is not None else None
+                # str(): the top value may be a date, a boolean or any object that MetricResults does not accept
+                category_top = str(current[self._feature_name].value_counts().index[0])
+                threshold = str(reference[self._feature_name].value_counts().index[0]) if reference is not None else None
                 statistics = MetricResults(
                     metric_type="statistics",
                     metric_name="top",

@@ -158,3 +158,26 @@ def test_analyzer_records_failing_metrics_and_continues(caplog):
     assert "Metric wasserstein failed" in caplog.text
     # Every result carries either a value or an error, never neither
     assert all((r.metric_value is not None) or r.error for r in analyzer.get_result())
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pd.to_datetime(["2026-11-01 10:00", "2026-11-01 10:00", "2026-11-01 11:00"], utc=True),
+        [True, True, False],
+    ],
+)
+def test_feature_summary_handles_dates_and_booleans(values):
+    summary = FeatureSummary(feature_name="col")
+    summary.evaluate(pd.DataFrame({"col": values}), pd.DataFrame({"col": values}))
+    top = [r for r in summary._result if r.metric_name == "top"][0]
+    assert top.metric_value == str(values[0]) and top.threshold == str(values[0])
+
+
+def test_analyzer_summary_statistics_have_no_error_with_datetime_column():
+    analyzer = Analyzer(name="test", model_id="m1", model_version="1")
+    analyzer.add_drift_metrics(metrics_list=["wasserstein"], features_list=["x1"])
+    current = _make_data(50, 1)
+    current["pred_timestamp"] = pd.to_datetime(current["pred_timestamp"], utc=True)
+    analyzer.run(current=current, reference=_make_data(50, 2), options={"wasserstein": {"threshold": 0.5}})
+    assert not [r for r in analyzer.get_result() if r.error]
