@@ -2,6 +2,21 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-11-01
+
+### Added
+- `pulsar_metrics.explain`: explanations of a model and their drift.
+  - `tree_attributions` (TreeSHAP, optional `explain` extra) and `importance` (share of the total attribution).
+  - `AttributionDrift`: NDCG@k and top-k overlap of the feature ranking, and change of each feature's share of
+    importance, against a reference window; bootstrap intervals (simultaneous over features), verdict from the
+    interval, and no verdict when the ranking is not stable on the reference window (instrument check).
+  - `importance_by_group`: share of importance per group minus the reference group's, stratified simultaneous
+    bootstrap, small-cell suppression.
+  - `explain_decision` and `describe`: plain-language sentences in French and English.
+- New metric type `explainability`.
+- Validated on ACSIncome (Folktables, MA 2018): no alarm under the null over 20 random splits; a model retrained on
+  labels biased against women is caught by the share of `SEX` (+10.9 points [+10.5; +11.2]).
+
 ## [0.7.0] - 2026-11-01
 
 ### Added

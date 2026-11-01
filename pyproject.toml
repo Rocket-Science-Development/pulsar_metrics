@@ -1,6 +1,6 @@
 [project]
 name = "pulsar-metrics"
-version = "0.7.0"
+version = "0.8.0"
 description = "Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user."
 authors = [
   { name = "Adel Benlagra", email = "abenlagra@rocketscience.one" },
@@ -18,6 +18,9 @@ dependencies = [
   "tqdm>=4.66",
 ]
 
+[project.optional-dependencies]
+explain = ["shap>=0.46"]
+
 [project.urls]
 Homepage = "https://github.com/Rocket-Science-Development/pulsar_metrics"
 
@@ -28,6 +31,7 @@ dev = [
   "pytest>=8.3",
   "pytest-cov>=6.0",
   "ruff>=0.8",
+  "shap>=0.46; python_version < '3.14'",
 ]
 
 [build-system]

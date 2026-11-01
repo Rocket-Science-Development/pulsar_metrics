@@ -30,6 +30,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [Monitoring LLM applications and agents](#monitoring-llm-applications-and-agents)
 - [Group fairness](#group-fairness)
   - [Continuous fairness monitoring](#continuous-fairness-monitoring-anytime-valid)
+- [Explanations and their drift](#explanations-and-their-drift)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
 - [Changelog](CHANGELOG.md)
@@ -480,6 +481,63 @@ measures the trade-off against a fixed-sample test re-run after every batch:
 
 The guarantee costs detection delay (typically 1 to 3 times longer), most visibly for small groups and gaps barely
 beyond the tolerance.
+
+## Explanations and their drift
+
+`pulsar_metrics.explain` watches **what the model relies on**, from feature attributions (TreeSHAP with the `explain`
+extra: `pip install pulsar-metrics[explain]`, or any attribution matrix with one row per prediction and one column per
+feature). Explanations are estimates too, so every comparison carries a bootstrap interval, and the instrument is
+checked first.
+
+| Tool | Answers | Verdict |
+|---|---|---|
+| `AttributionDrift` | Has the ranking of features changed (NDCG@k, overlap of the top k)? Has the share of importance of a feature moved by more than `share_tolerance`? | from the interval; per-feature intervals simultaneous (Bonferroni) |
+| `importance_by_group` | Does a feature weigh more for one group than for the reference group (possible proxy of a protected attribute)? | from the interval; small cells suppressed |
+| `explain_decision`, `describe` | Plain-language sentences, French or English, for one decision or for the results above | — |
+
+- **Instrument check**: `fit(reference)` bootstraps the reference window; when the ranking of features is not stable
+  at that sample size, the ranking verdicts are `None` and `method` says why.
+- **Watch the shares, not only the ranking**: a feature can gain a lot of weight while staying in the top k. On
+  ACSIncome, a model retrained on labels biased against women raised the share of `SEX` from 7.6 % to 18.2 % (change
+  established) while NDCG@5 stayed at 0.94.
+- The wording describes how the model works, never a cause, and quotes the interval with every figure.
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import GradientBoostingClassifier
+
+from pulsar_metrics.explain import AttributionDrift, describe, explain_decision, tree_attributions
+
+rng = np.random.default_rng(0)
+n = 4000
+X = pd.DataFrame(
+    {"income": rng.normal(50, 15, n), "hours": rng.normal(38, 8, n), "age": rng.integers(18, 70, n), "region": rng.integers(0, 2, n)}
+)
+y = (0.08 * X["income"] + 0.1 * X["hours"] + rng.normal(0, 1, n) > 8).astype(int)
+model_v1 = GradientBoostingClassifier(random_state=0).fit(X, y)
+# retrained on labels where half of the approvals of region 0 were lost: the new model relies on the region
+y_v2 = y * ((X["region"] == 1) | (rng.random(n) < 0.5))
+model_v2 = GradientBoostingClassifier(random_state=0).fit(X, y_v2)
+
+drift = AttributionDrift(k=3).fit(tree_attributions(model_v1, X[:2000]))
+results = drift.run(tree_attributions(model_v2, X[2000:]))
+labels = {"income": {"fr": "revenu", "en": "income"}, "hours": {"fr": "heures par semaine", "en": "hours per week"}}
+print("\n".join(describe(results, lang="fr", labels=labels, only_changes=True)))
+print(explain_decision(tree_attributions(model_v1, X[:1]).iloc[0], X.iloc[0], lang="en", labels=labels))
+```
+
+```
+Recouvrement des 3 premiers facteurs : 0,50 [0,50 ; 0,50], seuil 0,60. Changement établi.
+Poids de « revenu » : −12,6 points de pourcentage [−14,3 ; −11,2]. Changement établi.
+Poids de « heures par semaine » : −8,9 points de pourcentage [−10,3 ; −7,3]. Changement établi.
+Poids de « region » : +23,2 points de pourcentage [+22,6 ; +23,6]. Changement établi.
+Factors that weighed most in this decision:
+1. hours per week (value: 44.82) weighed in favour (+1.22)
+2. income (value: 51.89) weighed in favour (+0.36)
+3. age (value: 35) weighed against (-0.18)
+These factors describe how the model works, not a cause nor a judgement about the person.
+```
 
 ## Custom metrics
 

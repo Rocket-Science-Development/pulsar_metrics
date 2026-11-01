@@ -59,7 +59,12 @@ class MetricResults(BaseModel):
         )
         if (v not in metric_names) and (
             info.data.get("metric_type")
-            not in [MetricsType.custom.value, MetricsType.statistics.value, MetricsType.fairness.value]
+            not in [
+                MetricsType.custom.value,
+                MetricsType.statistics.value,
+                MetricsType.fairness.value,
+                MetricsType.explainability.value,
+            ]
         ):
             raise error_msg(
                 value=None,
