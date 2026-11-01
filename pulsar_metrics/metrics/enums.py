@@ -1,6 +1,6 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 
-from enum import Enum
+from enum import Enum, member
 from functools import partial
 
 from scipy.special import kl_div
@@ -40,39 +40,39 @@ class MetricsType(Enum):
 
 
 class DriftMetricsFuncs(Enum):
-    kl = partial(kl_div)
-    psi = partial(population_stability_index)
-    wasserstein = partial(wasserstein_distance)
-    mmd = partial(max_mean_discrepency)
+    kl = member(partial(kl_div))
+    psi = member(partial(population_stability_index))
+    wasserstein = member(partial(wasserstein_distance))
+    mmd = member(partial(max_mean_discrepency))
 
 
 class DriftTestMetricsFuncs(Enum):
-    ttest = partial(ttest_ind, equal_var=False)
-    manwu = partial(mannwhitneyu)
-    levene = partial(levene, center="mean")
-    bftest = partial(levene, center="median")
-    ks_2samp = partial(ks_2samp)
-    CvM = partial(cramervonmises_2samp)
-    chi2 = partial(chisquare)
+    ttest = member(partial(ttest_ind, equal_var=False))
+    manwu = member(partial(mannwhitneyu))
+    levene = member(partial(levene, center="mean"))
+    bftest = member(partial(levene, center="median"))
+    ks_2samp = member(partial(ks_2samp))
+    CvM = member(partial(cramervonmises_2samp))
+    chi2 = member(partial(chisquare))
 
 
 class PerformanceMetricsFuncs(Enum):
     """Set of performance metrics functions"""
 
     # Classification Metrics
-    accuracy = partial(accuracy_score)
-    precision = partial(precision_score)
-    recall = partial(recall_score)
-    f1 = partial(f1_score)
-    log_loss = partial(log_loss)
+    accuracy = member(partial(accuracy_score))
+    precision = member(partial(precision_score))
+    recall = member(partial(recall_score))
+    f1 = member(partial(f1_score))
+    log_loss = member(partial(log_loss))
     # Area under ROC Curve
-    auc = partial(roc_auc_score)
+    auc = member(partial(roc_auc_score))
     # Area under PR Curve
-    aucpr = partial(average_precision_score)
-    brier = partial(brier_score_loss)
+    aucpr = member(partial(average_precision_score))
+    brier = member(partial(brier_score_loss))
 
     # Regression metrics
-    mse = partial(mean_squared_error)
-    mae = partial(mean_absolute_error)
-    mape = partial(mean_absolute_error)
-    r2 = partial(r2_score)
+    mse = member(partial(mean_squared_error))
+    mae = member(partial(mean_absolute_error))
+    mape = member(partial(mean_absolute_error))
+    r2 = member(partial(r2_score))

@@ -43,3 +43,12 @@ def test_results_to_pandas_returns_dataframe():
     assert isinstance(results, pd.DataFrame)
     assert "wasserstein" in results["metric_name"].values
     assert "options" not in results.columns
+
+
+# Metric enums keep their members (functools.partial is not a member by default from Python 3.13)
+def test_metric_enums_are_populated():
+    from pulsar_metrics.metrics.enums import DriftMetricsFuncs, DriftTestMetricsFuncs, PerformanceMetricsFuncs
+
+    assert len(DriftMetricsFuncs) == 4
+    assert len(DriftTestMetricsFuncs) == 7
+    assert len(PerformanceMetricsFuncs) == 12
