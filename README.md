@@ -2,6 +2,7 @@
 
 [![Continuous Integration](https://github.com/Rocket-Science-Development/pulsar_metrics/actions/workflows/continuous-integration.yaml/badge.svg)](https://github.com/Rocket-Science-Development/pulsar_metrics/actions/workflows/continuous-integration.yaml)
 ![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 **pulsar-metrics** is an open-source Python library for evaluating and monitoring **data drift**, **concept drift** and
@@ -287,4 +288,4 @@ Powered by [Rocket Science Development](https://rocketscience.one/).
 2. Fork the repository, develop on a branch and add tests.
 3. Check `uv run pytest` and the linters, then submit a pull request referencing the issue.
 
-See [LICENSE](LICENSE).
+Licensed under the [Apache License 2.0](LICENSE).

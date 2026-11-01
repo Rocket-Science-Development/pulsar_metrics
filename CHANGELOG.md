@@ -2,6 +2,12 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- License metadata aligned with the `LICENSE` file: the package is distributed under the **Apache License 2.0**
+  (`pyproject.toml` previously declared MIT).
+
 ## [0.3.1] - 2026-11-01
 
 ### Fixed
