@@ -69,3 +69,17 @@ def test_run_accepts_mixed_timestamp_formats(timestamps):
     analyzer.add_drift_metrics(metrics_list=["wasserstein"], features_list=["x1"])
     analyzer.run(current=current, reference=_make_data(50, 0.0, 2), options={"wasserstein": {"threshold": 0.1}})
     assert analyzer._metadata["period_start"] < analyzer._metadata["period_end"]
+
+
+# Under pandas 2, run() must not trigger chained assignment warnings (pandas 3 removed them: copy-on-write)
+@pytest.mark.skipif(not hasattr(pd.errors, "SettingWithCopyWarning"), reason="pandas 3: copy-on-write")
+def test_run_does_not_warn_about_chained_assignment():
+    import warnings
+
+    analyzer = Analyzer(name="test", model_id="m1", model_version="1")
+    analyzer.add_drift_metrics(metrics_list=["wasserstein"], features_list=["x1"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", pd.errors.SettingWithCopyWarning)
+        analyzer.run(
+            current=_make_data(50, 0.5, 1), reference=_make_data(50, 0.0, 2), options={"wasserstein": {"threshold": 0.1}}
+        )

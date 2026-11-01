@@ -2,6 +2,16 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-11-01
+
+### Changed
+- **pandas 3 supported** (`pandas>=2.2,<4`); the lock file now uses pandas 3.1. All tests pass with pandas 3.1 and
+  2.3, characterization values unchanged at 1e-9.
+- **Python 3.14 and 3.15 supported and tested.** Python 3.15 requires pandas 3 (pandas 2 has no build for it).
+- Continuous integration: Python 3.12, 3.13, 3.14 and 3.15 with pandas 3, plus Python 3.12 with pandas 2.
+- pytest no longer references `SettingWithCopyWarning`, removed in pandas 3 (copy-on-write); a dedicated test keeps
+  checking it under pandas 2.
+
 ## [0.5.0] - 2026-11-01
 
 ### Added

@@ -1,7 +1,8 @@
 # pulsar-metrics
 
 [![Continuous Integration](https://github.com/Rocket-Science-Development/pulsar_metrics/actions/workflows/continuous-integration.yaml/badge.svg)](https://github.com/Rocket-Science-Development/pulsar_metrics/actions/workflows/continuous-integration.yaml)
-![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
+![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14%20%7C%203.15-blue)
+![pandas](https://img.shields.io/badge/pandas-2.2%2B%20%7C%203.x-blue)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
@@ -33,7 +34,7 @@ collects features and predictions from a model serving code into InfluxDB.
 
 ## Installation
 
-Requires **Python 3.12 or later** (tested on 3.12 and 3.13).
+Requires **Python 3.12 or later** (tested on 3.12, 3.13, 3.14 and 3.15).
 
 ```bash
 pip install "pulsar-metrics @ git+https://github.com/Rocket-Science-Development/pulsar_metrics.git"
@@ -42,7 +43,8 @@ pip install "pulsar-metrics @ git+https://github.com/Rocket-Science-Development/
 Pin a commit or a tag for reproducible installs (`...pulsar_metrics.git@<sha>`). The PyPI release (0.1.3) predates the
 current API and only supports Python 3.9.
 
-Main dependencies: pandas >= 2.2 (< 3), numpy, scipy, scikit-learn, pydantic 2.
+Main dependencies: pandas 2.2+ or 3.x, numpy, scipy, scikit-learn, pydantic 2. Python 3.15 requires pandas 3 (pandas 2
+is not built for it).
 
 ## Quick start
 
@@ -414,8 +416,8 @@ the test. Regenerate the file only after an intended behaviour change:
 uv run python -m tests.test_characterization
 ```
 
-Continuous integration runs lint and the tests on Python 3.12 and 3.13 for every pull request; tests are required to
-pass. Pushing a tag builds and publishes the package.
+Continuous integration runs lint and the tests on Python 3.12 to 3.15 with pandas 3, plus Python 3.12 with pandas 2,
+for every pull request; tests are required to pass. Pushing a tag builds and publishes the package.
 
 ## About [PulsarML](https://pulsar.ml/)
 
