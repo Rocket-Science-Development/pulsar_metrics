@@ -13,6 +13,8 @@ It applies to classic models as well as to **LLM applications and agents**: thei
 are turned into features (steps, tools called, errors, tokens, latency...) and compared between windows with the same
 tests, under thresholds calibrated for non-deterministic traffic.
 
+![Pulsar.ml architecture](https://raw.githubusercontent.com/Rocket-Science-Development/pulsar_demo/main/images/pulsarml-architecture.png)
+
 It pairs with [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection), which
 collects features and predictions from a model serving code into InfluxDB.
 
