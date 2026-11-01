@@ -18,6 +18,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [Available metrics](#available-metrics)
 - [Computing metrics one by one](#computing-metrics-one-by-one)
 - [The Analyzer](#the-analyzer)
+- [Confirming drift over successive windows](#confirming-drift-over-successive-windows)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
 - [Changelog](CHANGELOG.md)
@@ -215,6 +216,43 @@ Extra keyword arguments are passed to the underlying function, e.g. `kernel="rbf
 
 Because `options` are set per metric name, distance thresholds are shared by all features: standardize numeric
 features against the reference (`(x - mean_ref) / std_ref`) or run one analyzer per group of features.
+
+## Confirming drift over successive windows
+
+In continuous monitoring, a single window can flag a drift by chance: at a 5 % significance level, a statistical test
+raises a false alarm about once every twenty windows on stable data. `DriftPersistence` confirms a drift only when it is
+seen in `windows` consecutive analyses (default 2), and clears it only after as many analyses without drift.
+
+```python
+from pulsar_metrics.analyzers.persistence import DriftPersistence
+
+persistence = DriftPersistence(windows=2)  # keep one instance for the whole monitoring
+
+for shift in [0.0, 0.8, 0.0, 0.8, 0.8]:  # stable, isolated shift, stable, lasting shift
+    window_data = window(300, shift, "2026-03-01")  # helper from the quick start
+    window_analyzer = Analyzer(name="window", model_id="credit_model", model_version="1.0")
+    window_analyzer.add_drift_metrics(metrics_list=["ks_2samp"], features_list=["income"])
+    window_analyzer.run(current=window_data, reference=reference)
+
+    verdict = persistence.update_to_pandas(window_analyzer.results_to_pandas()).iloc[0]
+    print(f"shift={shift}  raw={verdict.drift_status}  confirmed={verdict.confirmed_drift}  changed={verdict.changed}")
+```
+
+```
+shift=0.0  raw=False  confirmed=False  changed=False
+shift=0.8  raw=True  confirmed=False  changed=False    <- isolated: not confirmed
+shift=0.0  raw=False  confirmed=False  changed=False
+shift=0.8  raw=True  confirmed=False  changed=False
+shift=0.8  raw=True  confirmed=True  changed=True     <- second window in a row: confirmed
+```
+
+Rules, for each (metric type, metric name, feature): `drift_status=True` extends the drift streak, `False` extends the
+no-drift streak, and `None` (no threshold, metric in error) keeps both. `changed=True` marks the window where the
+confirmed verdict switches, which is the event to act upon (alert, re-evaluation). `confirmed()` lists the metrics in
+confirmed drift and `reset()` clears the history, for instance after deploying a new model version. Summary statistics
+are ignored.
+
+The cost is a delay of `windows - 1` windows before a lasting drift is confirmed.
 
 ## Custom metrics
 
