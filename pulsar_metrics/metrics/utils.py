@@ -137,8 +137,12 @@ def chi2_test(new: pd.Series, reference: pd.Series, **kwargs):
     return chi2_contingency(counts.T.to_numpy(), **kwargs)
 
 
-def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False):
+def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False, epsilon: float = 1e-6):
     """Calculate the Population Stability Index (PSI) between two samples
+
+    PSI = sum((p_new - p_ref) * ln(p_new / p_ref)) over shared bins (numeric) or categories. `epsilon` is
+    added to every proportion before renormalisation, as for kl_divergence, so that a bin empty in one
+    sample gives a large but finite value instead of inf (or being silently skipped).
 
     Parameters
     ----------
@@ -147,26 +151,24 @@ def population_stability_index(new: pd.Series, reference: pd.Series, binned: boo
     reference : pd.Series
         The input pandas Series of the reference population
     binned : bool, optional
-        if the population values have already been binned into identical bins.
-        If the two pandas series have different lengths
-        missing indices are imputed with zeros.
-
-    Raises
-    ------
-        ValueError if input value have not correct
+        if the population values have already been binned into identical bins, i.e. the two series hold
+        counts indexed by bin. Bins missing from one series count zero.
+    epsilon : float, optional
+        Additive smoothing applied to the proportions
 
     Returns
     -------
-    pd.Series
+    float
         returns Population Stability Index (PSI) of two pandas series (new,reference)
     """
-
-    percents = get_population_percentages(new, reference, binned)
-
-    percent_diff = percents["new"] - percents["ref"]
-    percent_ratio = percents["new"] / percents["ref"]
-
-    return (percent_diff * np.log(percent_ratio)).sum()
+    if binned:
+        counts = pd.concat([reference, new], axis=1, keys=["ref", "new"]).fillna(0)
+    else:
+        counts = get_population_counts(new, reference)
+    p = counts["new"] / counts["new"].sum() + epsilon
+    q = counts["ref"] / counts["ref"].sum() + epsilon
+    p, q = p / p.sum(), q / q.sum()
+    return float(((p - q) * np.log(p / q)).sum())
 
 
 def max_mean_discrepency(new: pd.DataFrame, reference: pd.DataFrame, kernel="linear", **kwargs):
