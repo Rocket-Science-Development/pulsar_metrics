@@ -29,6 +29,16 @@ class MetricResults(BaseModel):
     threshold: Optional[Union[float, int, str, list]] = None
     conf_int: Optional[list] = None
     error: Optional[str] = None
+    # Group-level results (fairness): all optional, absent for the other metric types
+    group: Optional[str] = None  # e.g. "sex=F" or, for intersections, "sex=F|region=North"
+    reference_group: Optional[str] = None
+    n: Optional[int] = None  # rows behind the value
+    ci_low: Optional[float] = None
+    ci_high: Optional[float] = None
+    method: Optional[str] = None  # how the value and the interval were obtained
+    test_type: Optional[str] = None  # "fixed" or "sequential"
+    e_value: Optional[float] = None  # sequential tests
+    suppressed: Optional[bool] = None  # cell below the minimum size: value withheld
 
     # TODO: validators for model id's, model's version, data_id, and metrics type
     @field_validator("metric_type")
@@ -48,7 +58,8 @@ class MetricResults(BaseModel):
             PerformanceMetricsFuncs._member_names_ + DriftMetricsFuncs._member_names_ + DriftTestMetricsFuncs._member_names_
         )
         if (v not in metric_names) and (
-            info.data.get("metric_type") not in [MetricsType.custom.value, MetricsType.statistics.value]
+            info.data.get("metric_type")
+            not in [MetricsType.custom.value, MetricsType.statistics.value, MetricsType.fairness.value]
         ):
             raise error_msg(
                 value=None,
