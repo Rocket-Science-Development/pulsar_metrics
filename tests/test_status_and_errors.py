@@ -181,3 +181,19 @@ def test_analyzer_summary_statistics_have_no_error_with_datetime_column():
     current["pred_timestamp"] = pd.to_datetime(current["pred_timestamp"], utc=True)
     analyzer.run(current=current, reference=_make_data(50, 2), options={"wasserstein": {"threshold": 0.5}})
     assert not [r for r in analyzer.get_result() if r.error]
+
+
+def test_feature_summary_without_the_feature_in_the_reference():
+    summary = FeatureSummary(feature_name="only_current")
+    summary.evaluate(pd.DataFrame({"only_current": [1.0, 2.0, 3.0]}), pd.DataFrame({"other": [1.0]}))
+    mean = [r for r in summary._result if r.metric_name == "mean"][0]
+    assert mean.metric_value == 2.0 and mean.threshold is None
+
+
+def test_analyzer_summary_statistics_for_columns_missing_from_the_reference():
+    analyzer = Analyzer(name="test", model_id="m1", model_version="1")
+    analyzer.add_drift_metrics(metrics_list=["wasserstein"], features_list=["x1"])
+    current = _make_data(50, 1).assign(environment="production", extra=np.arange(50.0))
+    analyzer.run(current=current, reference=_make_data(50, 2), options={"wasserstein": {"threshold": 0.5}})
+    assert not [r for r in analyzer.get_result() if r.error]
+    assert [r for r in analyzer.get_result() if r.feature_name == "environment" and r.metric_name == "top"]
