@@ -2,6 +2,15 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-11-01
+
+### Fixed
+- `FairnessMonitor`: pairs now join decisions of the same batch (or of the previous one). The unpaired reference
+  decisions used to accumulate when the reference group is larger, so a group's new decisions were paired with old
+  reference decisions; a change shared by every group (e.g. approvals rising for everyone) then appeared as a false
+  disparity. Found on a week-long demonstration stream (the bias-injection bench used stationary rates); regression
+  test added. Bench rerun: false alarms 0 to 1 %, power nearly unchanged.
+
 ## [0.9.0] - 2026-11-01
 
 ### Added

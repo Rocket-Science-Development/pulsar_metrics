@@ -100,3 +100,24 @@ def test_monitor_bounds_unpaired_observations():
     monitor = FairnessMonitor("group", "A", ["B"], max_pending=100)
     monitor.update(pd.DataFrame({"group": ["A"] * 1000, "y_pred": [1] * 1000}))
     assert len(monitor._queues["B"][1]) == 100
+
+
+def test_no_false_alarm_when_every_group_changes_together():
+    # unbalanced groups (70 % / 10 %) and an approval rate rising for everyone: pairing a group's new decisions with
+    # old reference decisions would show a disparity that does not exist
+    rng = np.random.default_rng(8)
+    monitor = FairnessMonitor("group", "A", ["B"], tolerance=0.05)
+    for k in range(120):
+        rate = 0.4 if k < 40 else 0.75  # shared shift
+        group = rng.choice(["A", "B", "C"], 400, p=[0.7, 0.1, 0.2])
+        result = monitor.update(pd.DataFrame({"group": group, "y_pred": (rng.random(400) < rate).astype(int)}))[0]
+    assert result.drift_status is False and abs(result.metric_value) < 0.03
+
+
+def test_leftovers_older_than_the_batch_are_dropped():
+    monitor = FairnessMonitor("group", "A", ["B"])
+    monitor.update(pd.DataFrame({"group": ["A"] * 50 + ["B"] * 5, "y_pred": [1] * 55}))
+    assert len(monitor._queues["B"][1]) == 45  # this batch's unpaired reference decisions
+    monitor.update(pd.DataFrame({"group": ["A"] * 10, "y_pred": [0] * 10}))
+    assert len(monitor._queues["B"][1]) == 10  # the 45 older ones are gone
+
