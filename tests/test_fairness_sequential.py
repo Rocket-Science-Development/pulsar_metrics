@@ -120,4 +120,3 @@ def test_leftovers_older_than_the_batch_are_dropped():
     assert len(monitor._queues["B"][1]) == 45  # this batch's unpaired reference decisions
     monitor.update(pd.DataFrame({"group": ["A"] * 10, "y_pred": [0] * 10}))
     assert len(monitor._queues["B"][1]) == 10  # the 45 older ones are gone
-
