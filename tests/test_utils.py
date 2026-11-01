@@ -3,7 +3,6 @@ import sys
 
 import pandas as pd
 import pytest
-import yaml
 
 sys.path.append("..")
 
@@ -28,7 +27,7 @@ df = pd.DataFrame(
 # Dataframe is valid
 def test_dataframe_is_valid():
     print(df.columns)
-    assert validate_dataframe(data=df) == True
+    assert validate_dataframe(data=df) is True
 
 
 # Dataframe is missing important columns
