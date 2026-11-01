@@ -79,6 +79,9 @@ class FeatureSummary(FeatureSummaryAbstract):
             self._check_feature_name(current)
 
             column = current[self._feature_name]
+            # A feature absent from the reference gets its statistics without reference values
+            if reference is not None and self._feature_name not in reference.columns:
+                reference = None
             if is_numeric_dtype(column) and not is_bool_dtype(column):
                 # Iterating through the list of functions for numerical features
                 for name, func in _numeric_dict.items():
