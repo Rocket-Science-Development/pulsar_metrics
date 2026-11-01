@@ -9,6 +9,12 @@
 **model performance**. Every metric returns the same result structure with a value, an explicit drift verdict and,
 when something goes wrong, an error message instead of a silent failure. User-defined metrics are supported.
 
+It applies to classic models as well as to **LLM applications and agents**: their requests, answers and trajectories
+are turned into features (steps, tools called, errors, tokens, latency...) and compared between windows with the same
+tests, under thresholds calibrated for non-deterministic traffic.
+
+![Pulsar.ml architecture](https://raw.githubusercontent.com/Rocket-Science-Development/pulsar_demo/main/images/pulsarml-architecture.png)
+
 It pairs with [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection), which
 collects features and predictions from a model serving code into InfluxDB.
 
@@ -20,6 +26,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [The Analyzer](#the-analyzer)
 - [Calibrated thresholds and multiple testing](#calibrated-thresholds-and-multiple-testing)
 - [Confirming drift over successive windows](#confirming-drift-over-successive-windows)
+- [Monitoring LLM applications and agents](#monitoring-llm-applications-and-agents)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
 - [Changelog](CHANGELOG.md)
@@ -293,6 +300,71 @@ confirmed drift and `reset()` clears the history, for instance after deploying a
 are ignored.
 
 The cost is a delay of `windows - 1` windows before a lasting drift is confirmed.
+
+## Monitoring LLM applications and agents
+
+[pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection) turns OpenTelemetry
+GenAI traces into one `agent_run` record per agent run (`steps`, `tool_calls`, `first_tool`, `tool_error_rate`,
+`repeated_calls`, `out_of_scope_calls`, `input_tokens`, `latency_s`, `termination`...). These records are ordinary
+features: categorical ones (which tool, termination type) go to `chi2`, numeric ones (steps, tokens, latency) to
+`ks_2samp` or `wasserstein`. Agents are non-deterministic, so calibrate the thresholds on A/A draws and confirm drifts
+over several windows.
+
+```python
+import numpy as np
+import pandas as pd
+
+from pulsar_metrics.analyzers.base import Analyzer
+from pulsar_metrics.calibration import AACalibrator
+from pulsar_metrics.multiple_testing import fdr_correct
+
+rng = np.random.default_rng(1)
+TOOLS = ["search_programs", "check_eligibility", "compute_amount", "create_file"]
+
+
+def agent_runs(n, start, tool_fault=0.0):
+    """agent_run records as written by pulsar-data-collection (synthetic here)"""
+    failed = rng.random(n) < tool_fault  # a degraded tool makes the agent retry
+    return pd.DataFrame(
+        {
+            "model_id": "permit_assistant",
+            "model_version": "1.0",
+            "pred_timestamp": pd.date_range(start, periods=n, freq="min"),
+            "first_tool": rng.choice(TOOLS, size=n, p=[0.2, 0.35, 0.3, 0.15]),
+            "steps": rng.poisson(2, n) + 1 + 2 * failed,
+            "tool_error_rate": np.where(failed, 0.5, 0.0),
+            "latency_s": rng.gamma(4, 5, n) + 20 * failed,
+        }
+    )
+
+
+agent_reference = agent_runs(3000, "2026-11-01")  # stable traffic, at least 10 windows
+agent_current = agent_runs(200, "2026-11-04", tool_fault=0.3)  # one window, 30 % of runs hit a failing tool
+
+agents = Analyzer(name="agent", model_id="permit_assistant", model_version="1.0")
+agents.add_drift_metrics(metrics_list=["chi2"], features_list=["first_tool"])
+agents.add_drift_metrics(metrics_list=["ks_2samp"], features_list=["steps", "latency_s"])
+agents.add_drift_metrics(metrics_list=["wasserstein"], features_list=["tool_error_rate"])
+
+calibrator = AACalibrator(window_size=200, n_draws=200).fit(agent_reference, agents._metrics_list)
+agents.run(current=agent_current, reference=agent_reference, options=calibrator.options())
+
+drift = agents.results_to_pandas().query("metric_type == 'drift'").copy()
+drift["p_empirical"] = calibrator.empirical_pvalues(drift)
+print(fdr_correct(drift, "p_empirical")[["metric_name", "feature_name", "p_adjusted", "drift_fdr"]].to_string(index=False))
+```
+
+```
+metric_name    feature_name  p_adjusted drift_fdr
+       chi2      first_tool    0.880597     False
+   ks_2samp           steps    0.006633      True
+   ks_2samp       latency_s    0.006633      True
+wasserstein tool_error_rate    0.006633      True
+```
+
+The tool distribution (`first_tool`) is unchanged, while steps, latency and tool errors drift: the signature of a
+degraded tool rather than of a change in the requests. Feed each window's results to `DriftPersistence` to raise an
+alert only when the drift lasts.
 
 ## Custom metrics
 
