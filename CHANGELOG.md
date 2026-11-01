@@ -2,6 +2,16 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-11-01
+
+### Added
+- `pulsar_metrics.fairness.counterfactual_analysis`: analysis of counterfactual probes of LLM applications and agents
+  (rows from `pulsar_data_collection.genai.probes`). Flip rate (Wilson), its excess over the placebo flip rate
+  (Newcombe; noise floor of the instrument), and the difference and ratio (4/5 rule) of the rate of a given action,
+  paired by set (BCa bootstrap, McNemar exact test, Benjamini-Hochberg over groups). Failed requests are excluded.
+- `pulsar_metrics.fairness.comparative_analysis`: comparative probes asked in both orders. Position effect (binomial
+  test, instrument control), tie rate, and order-balanced preference for each group.
+
 ## [0.8.0] - 2026-11-01
 
 ### Added

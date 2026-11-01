@@ -30,6 +30,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [Monitoring LLM applications and agents](#monitoring-llm-applications-and-agents)
 - [Group fairness](#group-fairness)
   - [Continuous fairness monitoring](#continuous-fairness-monitoring-anytime-valid)
+  - [Counterfactual probes](#counterfactual-probes-of-llm-applications-and-agents)
 - [Explanations and their drift](#explanations-and-their-drift)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
@@ -481,6 +482,57 @@ measures the trade-off against a fixed-sample test re-run after every batch:
 
 The guarantee costs detection delay (typically 1 to 3 times longer), most visibly for small groups and gaps barely
 beyond the tolerance.
+
+### Counterfactual probes of LLM applications and agents
+
+`counterfactual_analysis` and `comparative_analysis` analyse the rows collected by the counterfactual probes of
+`pulsar_data_collection.genai.probes`: requests that differ only by one attribute (e.g. a first name typical of each
+group). They answer whether that attribute changes **what the application does** (the answer, the tool it calls, a
+request for authentication, a refusal), and they judge it against controls rather than against zero:
+
+| Result | Meaning | Verdict |
+|---|---|---|
+| `placebo_flip_rate` | share of placebo sets (an attribute that must not matter) whose outcome changes: noise floor of the instrument | — |
+| `counterfactual_flip_rate` | share of sets whose outcome changes when only the attribute changes (Wilson interval) | — |
+| `counterfactual_excess_flip_rate` | flip rate minus placebo flip rate (Newcombe interval) | above `flip_tolerance` (0.05) |
+| `counterfactual_action_rate_difference` | rate of a given action in the group minus in the reference group, paired by set (BCa bootstrap); McNemar exact test, Benjamini-Hochberg over groups, in `method` | outside `rate_zone` |
+| `counterfactual_action_rate_ratio` | same rates, ratio (4/5 rule) | outside `ratio_zone` |
+| `position_effect` | comparative probes: share of answers picking the first profile; `True` = the answers depend on the order | binomial test |
+| `tie_rate`, `comparative_preference` | share of ties; probability of choosing a group, averaged over both orders | outside `preference_zone` |
+
+```python
+from pulsar_metrics.fairness import counterfactual_analysis
+
+# rows of a CounterfactualProbe run: the outcome is the first tool the agent called
+rng = np.random.default_rng(2)
+rows = []
+for s in range(200):
+    u = rng.random()  # what the request itself calls for, shared by the set; 3 % of answers flip at random
+    for variant, p_auth in (("fr_qc", 0.1), ("en_ca", 0.1), ("maghreb", 0.45)):  # the agent asks one group to authenticate
+        auth = (u < p_auth) != (rng.random() < 0.03)
+        rows.append({"set_id": f"cf-{s}", "variant": variant, "attribute": "name", "control": "none",
+                     "outcome": "authenticate" if auth else "check_eligibility"})
+    u = rng.random()
+    for variant in ("ref_a", "ref_b"):  # placebo: the file reference changes, nothing else
+        auth = (u < 0.1) != (rng.random() < 0.03)
+        rows.append({"set_id": f"pl-{s}", "variant": variant, "attribute": "reference", "control": "placebo",
+                     "outcome": "authenticate" if auth else "check_eligibility"})
+results = counterfactual_analysis(pd.DataFrame(rows), reference_variant="fr_qc", action="authenticate")
+for r in results:
+    print(f"{r.metric_name:<38} {r.group or r.feature_name:<13} {r.metric_value:+.3f} [{r.ci_low:+.3f}, {r.ci_high:+.3f}] {r.drift_status}")
+```
+
+```
+placebo_flip_rate                      reference     +0.055 [+0.031, +0.096] None
+counterfactual_flip_rate               name=en_ca    +0.065 [+0.038, +0.108] None
+counterfactual_excess_flip_rate        name=en_ca    +0.010 [-0.039, +0.059] None
+counterfactual_flip_rate               name=maghreb  +0.365 [+0.301, +0.434] None
+counterfactual_excess_flip_rate        name=maghreb  +0.310 [+0.234, +0.383] True
+counterfactual_action_rate_difference  name=en_ca    +0.005 [-0.030, +0.040] False
+counterfactual_action_rate_ratio       name=en_ca    +1.053 [+0.714, +1.500] None
+counterfactual_action_rate_difference  name=maghreb  +0.345 [+0.280, +0.415] True
+counterfactual_action_rate_ratio       name=maghreb  +4.632 [+3.185, +7.250] True
+```
 
 ## Explanations and their drift
 
