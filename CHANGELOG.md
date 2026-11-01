@@ -2,6 +2,18 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-11-01
+
+### Added
+- `DriftPersistence` (`pulsar_metrics.analyzers.persistence`): confirms a drift only when it is seen in `windows`
+  consecutive analysis windows (default 2) and clears it after as many windows without drift. Reduces single-window
+  false alarms in continuous monitoring, at the cost of `windows - 1` windows of delay. Motivated by a 6-minute
+  end-to-end monitoring test in which an unchanged feature was flagged on one window only (#38).
+
+### Changed
+- License metadata aligned with the `LICENSE` file: the package is distributed under the **Apache License 2.0**
+  (`pyproject.toml` previously declared MIT).
+
 ## [0.3.1] - 2026-11-01
 
 ### Fixed
