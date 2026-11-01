@@ -336,16 +336,16 @@ def agent_runs(n, start, tool_fault=0.0):
     )
 
 
-reference = agent_runs(3000, "2026-11-01")  # stable traffic, at least 10 windows
-current = agent_runs(200, "2026-11-04", tool_fault=0.3)  # one window, 30 % of runs hit a failing tool
+agent_reference = agent_runs(3000, "2026-11-01")  # stable traffic, at least 10 windows
+agent_current = agent_runs(200, "2026-11-04", tool_fault=0.3)  # one window, 30 % of runs hit a failing tool
 
 agents = Analyzer(name="agent", model_id="permit_assistant", model_version="1.0")
 agents.add_drift_metrics(metrics_list=["chi2"], features_list=["first_tool"])
 agents.add_drift_metrics(metrics_list=["ks_2samp"], features_list=["steps", "latency_s"])
 agents.add_drift_metrics(metrics_list=["wasserstein"], features_list=["tool_error_rate"])
 
-calibrator = AACalibrator(window_size=200, n_draws=200).fit(reference, agents._metrics_list)
-agents.run(current=current, reference=reference, options=calibrator.options())
+calibrator = AACalibrator(window_size=200, n_draws=200).fit(agent_reference, agents._metrics_list)
+agents.run(current=agent_current, reference=agent_reference, options=calibrator.options())
 
 drift = agents.results_to_pandas().query("metric_type == 'drift'").copy()
 drift["p_empirical"] = calibrator.empirical_pvalues(drift)
