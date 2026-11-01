@@ -52,3 +52,20 @@ def test_metric_enums_are_populated():
     assert len(DriftMetricsFuncs) == 4
     assert len(DriftTestMetricsFuncs) == 7
     assert len(PerformanceMetricsFuncs) == 12
+
+
+# run() accepts timestamps with mixed precisions, as read back from a time series store
+@pytest.mark.parametrize(
+    "timestamps",
+    [
+        ["2026-11-01 16:39:33+00:00", "2026-11-01 16:39:33.001000+00:00", "2026-11-01T16:39:34.5Z"],
+        pd.to_datetime(["2026-11-01 16:39:33", "2026-11-01 16:39:34", "2026-11-01 16:39:35"]),
+    ],
+)
+def test_run_accepts_mixed_timestamp_formats(timestamps):
+    current = _make_data(3, 0.5, 1)
+    current["pred_timestamp"] = list(timestamps)
+    analyzer = Analyzer(name="test", model_id="m1", model_version="1")
+    analyzer.add_drift_metrics(metrics_list=["wasserstein"], features_list=["x1"])
+    analyzer.run(current=current, reference=_make_data(50, 0.0, 2), options={"wasserstein": {"threshold": 0.1}})
+    assert analyzer._metadata["period_start"] < analyzer._metadata["period_end"]

@@ -179,7 +179,8 @@ class Analyzer(AbstractAnalyzer):
         cur_model_version_validation = current.model_version == self._metadata["model_version"]
         df_current = current.loc[cur_model_id_validation & cur_model_version_validation].copy()
 
-        df_current["pred_timestamp"] = pd.to_datetime(df_current["pred_timestamp"])
+        # format="mixed": timestamps from a store often mix precisions (with or without fractional seconds)
+        df_current["pred_timestamp"] = pd.to_datetime(df_current["pred_timestamp"], format="mixed")
 
         self._metadata.update(
             {
