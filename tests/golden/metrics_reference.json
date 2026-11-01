@@ -1,0 +1,572 @@
+{
+ "data_fingerprint": "1743be9d7550cbb0ce39c196f5cc1f13632373b47438f55b27cfbb7f90319ebb",
+ "results": {
+  "CvM|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 2.7075991371194874e-07,
+   "threshold": 0.05
+  },
+  "CvM|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 1.0678813225695194e-05,
+   "threshold": 0.05
+  },
+  "CvM|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.22921136627052363,
+   "threshold": 0.05
+  },
+  "accuracy|None": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.73,
+   "threshold": 0.5
+  },
+  "accuracy|bootstrap": {
+   "conf_int": [
+    0.6875,
+    0.77
+   ],
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.73,
+   "threshold": 0.5
+  },
+  "aucpr|None": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.7449141163249051,
+   "threshold": 0.5
+  },
+  "aucpr|bootstrap": {
+   "conf_int": [
+    0.6848013113995914,
+    0.8028731440855648
+   ],
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.7449141163249051,
+   "threshold": 0.5
+  },
+  "auc|None": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.7958231334149326,
+   "threshold": 0.5
+  },
+  "auc|bootstrap": {
+   "conf_int": [
+    0.7551497114072769,
+    0.8419684879911532
+   ],
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.7958231334149326,
+   "threshold": 0.5
+  },
+  "bftest|x1": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.8409246609652696,
+   "threshold": 0.05
+  },
+  "bftest|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 4.146244109109888e-06,
+   "threshold": 0.05
+  },
+  "bftest|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.2807748850008779,
+   "threshold": 0.05
+  },
+  "brier|None": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.18213481345533616,
+   "threshold": 0.5
+  },
+  "brier|bootstrap": {
+   "conf_int": [
+    0.16404861724178377,
+    0.1996196641674123
+   ],
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.18213481345533616,
+   "threshold": 0.5
+  },
+  "chi2|x1": null,
+  "chi2|x2": null,
+  "chi2|x3": null,
+  "f1|None": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.6727272727272727,
+   "threshold": 0.5
+  },
+  "f1|bootstrap": {
+   "conf_int": [
+    0.6149367043595761,
+    0.725302750410509
+   ],
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.6727272727272727,
+   "threshold": 0.5
+  },
+  "kl|x1": null,
+  "kl|x2": null,
+  "kl|x3": null,
+  "ks_2samp|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 1.242296698524196e-07,
+   "threshold": 0.05
+  },
+  "ks_2samp|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 5.324396058798207e-05,
+   "threshold": 0.05
+  },
+  "ks_2samp|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.967105212672977,
+   "threshold": 0.05
+  },
+  "levene|x1": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.7651968975164989,
+   "threshold": 0.05
+  },
+  "levene|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 7.008234227747583e-08,
+   "threshold": 0.05
+  },
+  "levene|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.22081340778358846,
+   "threshold": 0.05
+  },
+  "log_loss|None": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.5459100141001719,
+   "threshold": 0.5
+  },
+  "log_loss|bootstrap": {
+   "conf_int": [
+    0.5017662520643824,
+    0.5880456874882354
+   ],
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.5459100141001719,
+   "threshold": 0.5
+  },
+  "mae|None": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.27,
+   "threshold": 0.5
+  },
+  "mae|bootstrap": {
+   "conf_int": [
+    0.23,
+    0.3125
+   ],
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.27,
+   "threshold": 0.5
+  },
+  "manwu|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 3.2767650305069895e-07,
+   "threshold": 0.05
+  },
+  "manwu|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 8.678788922134559e-06,
+   "threshold": 0.05
+  },
+  "manwu|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.5676647445309815,
+   "threshold": 0.05
+  },
+  "mape|None": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.27,
+   "threshold": 0.5
+  },
+  "mape|bootstrap": {
+   "conf_int": [
+    0.23,
+    0.3125
+   ],
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.27,
+   "threshold": 0.5
+  },
+  "mmd|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.1039524091688574,
+   "threshold": 0.5
+  },
+  "mmd|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.1817110995769391,
+   "threshold": 0.5
+  },
+  "mmd|x3": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.002550249999999643,
+   "threshold": 0.5
+  },
+  "mse|None": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.27,
+   "threshold": 0.5
+  },
+  "mse|bootstrap": {
+   "conf_int": [
+    0.23,
+    0.3125
+   ],
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.27,
+   "threshold": 0.5
+  },
+  "precision|None": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.7025316455696202,
+   "threshold": 0.5
+  },
+  "precision|bootstrap": {
+   "conf_int": [
+    0.6254770347855454,
+    0.7627867634923254
+   ],
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.7025316455696202,
+   "threshold": 0.5
+  },
+  "psi|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.138515381430888,
+   "threshold": 0.5
+  },
+  "psi|x2": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": Infinity,
+   "threshold": 0.5
+  },
+  "psi|x3": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.007636030626443209,
+   "threshold": 0.5
+  },
+  "r2|None": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": -0.10159118727050198,
+   "threshold": 0.5
+  },
+  "r2|bootstrap": {
+   "conf_int": [
+    -0.25924266682546615,
+    0.06146937747512958
+   ],
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": -0.10159118727050198,
+   "threshold": 0.5
+  },
+  "recall|None": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.6453488372093024,
+   "threshold": 0.5
+  },
+  "recall|bootstrap": {
+   "conf_int": [
+    0.5849166666666666,
+    0.7134558042293587
+   ],
+   "drift_status": false,
+   "metric_type": "performance",
+   "metric_value": 0.6453488372093024,
+   "threshold": 0.5
+  },
+  "summary:P25.0|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": -0.36981428333504696,
+   "threshold": -0.666917349815666
+  },
+  "summary:P25.0|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 0.35723460206136015,
+   "threshold": 0.29625292401589814
+  },
+  "summary:P25.0|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.0,
+   "threshold": 1.0
+  },
+  "summary:P95.0|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.863151447085495,
+   "threshold": 1.6048521275238437
+  },
+  "summary:P95.0|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 4.364113130791853,
+   "threshold": 3.2613983170991
+  },
+  "summary:P95.0|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 4.0,
+   "threshold": 4.0
+  },
+  "summary:count|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 400.0,
+   "threshold": null
+  },
+  "summary:count|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 400.0,
+   "threshold": null
+  },
+  "summary:count|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 400.0,
+   "threshold": null
+  },
+  "summary:kurtosis|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 0.1663628553153189,
+   "threshold": -0.05164966672592319
+  },
+  "summary:kurtosis|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 3.681535704702118,
+   "threshold": 6.405584365573484
+  },
+  "summary:kurtosis|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": -1.2221958657177665,
+   "threshold": -1.291333583362567
+  },
+  "summary:mean|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 0.30929036457045894,
+   "threshold": -0.013126150466933863
+  },
+  "summary:mean|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.4507516596403753,
+   "threshold": 1.0244758104805396
+  },
+  "summary:mean|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.9925,
+   "threshold": 1.942
+  },
+  "summary:median|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 0.4052112082022834,
+   "threshold": 0.0032117277268413113
+  },
+  "summary:median|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.0210057781653428,
+   "threshold": 0.6841326110699806
+  },
+  "summary:median|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 2.0,
+   "threshold": 2.0
+  },
+  "summary:skewness|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": -0.033123226387705866,
+   "threshold": 0.09340866204949827
+  },
+  "summary:skewness|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.7320571859297706,
+   "threshold": 2.0941308607143756
+  },
+  "summary:skewness|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 0.04789899003577913,
+   "threshold": 0.09842252921590967
+  },
+  "summary:std|x1": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 0.9742363575475125,
+   "threshold": 0.9589737047166969
+  },
+  "summary:std|x2": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.4385513850636655,
+   "threshold": 1.0605198304132073
+  },
+  "summary:std|x3": {
+   "conf_int": null,
+   "drift_status": null,
+   "metric_type": "statistics",
+   "metric_value": 1.3774773137877807,
+   "threshold": 1.4123158287012152
+  },
+  "ttest|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 8.422766934417869e-07,
+   "threshold": 0.05
+  },
+  "ttest|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 9.650841992598844e-07,
+   "threshold": 0.05
+  },
+  "ttest|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.5894862097257441,
+   "threshold": 0.05
+  },
+  "wasserstein|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.32401917215125825,
+   "threshold": 0.5
+  },
+  "wasserstein|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.42627584915983563,
+   "threshold": 0.5
+  },
+  "wasserstein|x3": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.056499999999999995,
+   "threshold": 0.5
+  }
+ }
+}
