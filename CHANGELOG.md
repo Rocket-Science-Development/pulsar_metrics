@@ -2,6 +2,18 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-11-01
+
+### Added
+- `pulsar_metrics.fairness.FairnessMonitor`: continuous, anytime-valid fairness monitoring of a stream of decisions.
+  One sequential test by betting per monitored group against the reference group (Chugg et al., NeurIPS 2023; Online
+  Newton Step bets, two-sided, with a tolerance), `alpha` split over the groups; criteria `demographic_parity` and
+  `equal_opportunity`. The false alarm probability stays below `alpha` however often the monitor is looked at.
+  Results are `MetricResults` with `test_type="sequential"` and the `e_value` at which the disparity was established.
+- `pulsar_metrics.fairness.BettingTest`: the underlying two-sample test for observations in [0, 1].
+- `benchmarks/fairness_drift.py`: bias-injection bench (false alarms under the null, power, detection delay, against a
+  fixed-sample test re-run after every batch), on synthetic data and on ACSIncome (Folktables).
+
 ## [0.6.0] - 2026-11-01
 
 ### Added
