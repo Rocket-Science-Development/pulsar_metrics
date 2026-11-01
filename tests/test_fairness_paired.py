@@ -114,3 +114,10 @@ def test_comparative_preference_detected():
     assert preference.drift_status is True and preference.group == "name=a" and preference.ci_low > 0.6
     assert get(results, "position_effect")[0].drift_status is False
     assert 0.05 < get(results, "tie_rate")[0].metric_value < 0.15
+
+
+def test_no_discordant_set_gives_a_bounded_interval_not_zero_width():
+    rows = probe_rows(60, {"fr": 0.0, "en": 0.0}, noise=0.0, n_placebo=0)
+    difference = get(counterfactual_analysis(rows, "fr", action="authenticate"), "counterfactual_action_rate_difference")[0]
+    assert difference.metric_value == 0 and difference.ci_low < -0.04 and difference.ci_high > 0.04
+    assert difference.drift_status is False  # within the default zone [-0.1, 0.1]

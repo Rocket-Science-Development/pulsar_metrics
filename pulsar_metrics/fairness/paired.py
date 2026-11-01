@@ -211,7 +211,13 @@ def counterfactual_analysis(
         for (v, group, n, ref, alt, b, c, p_value), p_adj in zip(action_tests, adjusted):
             mcnemar = f"McNemar exact: {b} vs {c} discordant sets, p = {p_value:.3g}, BH-adjusted {p_adj:.3g}"
             difference = float(alt.mean() - ref.mean())
-            low, high, how = _bootstrap((ref, alt), lambda r, a: a.mean() - r.mean(), confidence, n_resamples, seed)
+            if b + c == 0:
+                # no discordant set: the bootstrap would give [0, 0]; bound the difference by the share of discordant sets
+                bound = _wilson(0, n, confidence)[1]
+                low, high, how = -bound, bound, "Wilson bound on the share of discordant sets (none observed)"
+            else:
+                low, high, how = _bootstrap((ref, alt), lambda r, a: a.mean() - r.mean(), confidence, n_resamples, seed)
+                how += " bootstrap"
             out.append(
                 MetricResults(
                     metric_name="counterfactual_action_rate_difference",
@@ -222,8 +228,7 @@ def counterfactual_analysis(
                     n=n,
                     threshold=list(rate_zone),
                     drift_status=verdict(low, high, difference, rate_zone),
-                    method=f"rate of {label!s} in the group minus in the reference group, paired by set; {how} bootstrap; "
-                    + mcnemar,
+                    method=f"rate of {label!s} in the group minus in the reference group, paired by set; {how}; " + mcnemar,
                     test_type="fixed",
                     **common,
                 )
