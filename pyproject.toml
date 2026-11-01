@@ -1,6 +1,6 @@
 [project]
 name = "pulsar-metrics"
-version = "0.5.0"
+version = "0.5.1"
 description = "Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user."
 authors = [
   { name = "Adel Benlagra", email = "abenlagra@rocketscience.one" },
@@ -11,7 +11,7 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
 dependencies = [
   "numpy>=1.26",
-  "pandas>=2.2,<3",
+  "pandas>=2.2,<4",
   "pydantic>=2.7,<3",
   "scikit-learn>=1.5",
   "scipy>=1.13",
@@ -56,4 +56,4 @@ ignore = ["E231", "E241"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-filterwarnings = ["error::pandas.errors.SettingWithCopyWarning", "error::FutureWarning"]
+filterwarnings = ["error::FutureWarning"]
