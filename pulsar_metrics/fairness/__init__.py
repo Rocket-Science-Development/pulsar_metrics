@@ -2,5 +2,15 @@
 
 from .analyzer import FairnessAnalyzer, FairnessPolicy
 from .criteria import CRITERIA, DEFAULT_CRITERIA, EQUALIZED_ODDS, verdict
+from .sequential import BettingTest, FairnessMonitor
 
-__all__ = ["CRITERIA", "DEFAULT_CRITERIA", "EQUALIZED_ODDS", "FairnessAnalyzer", "FairnessPolicy", "verdict"]
+__all__ = [
+    "BettingTest",
+    "CRITERIA",
+    "DEFAULT_CRITERIA",
+    "EQUALIZED_ODDS",
+    "FairnessAnalyzer",
+    "FairnessMonitor",
+    "FairnessPolicy",
+    "verdict",
+]

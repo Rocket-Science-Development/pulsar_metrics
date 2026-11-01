@@ -29,6 +29,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [Confirming drift over successive windows](#confirming-drift-over-successive-windows)
 - [Monitoring LLM applications and agents](#monitoring-llm-applications-and-agents)
 - [Group fairness](#group-fairness)
+  - [Continuous fairness monitoring](#continuous-fairness-monitoring-anytime-valid)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
 - [Changelog](CHANGELOG.md)
@@ -432,6 +433,53 @@ language|region language=en|region=North language=fr|region=North  985         1
 
 Validated against [Fairlearn](https://fairlearn.org) on ACSIncome (Folktables, Massachusetts 2018, 12,035 test
 rows): identical disparate impact ratio, equal opportunity and equalized odds differences for sex (difference 0).
+
+### Continuous fairness monitoring (anytime-valid)
+
+Re-running the analysis above after every batch inflates false alarms: with enough looks, a test at 5 % ends up
+firing on a fair system. `FairnessMonitor` watches a stream of decisions with **sequential tests by betting** (Chugg
+et al., NeurIPS 2023): the probability that it *ever* raises a false alarm, however often it is looked at, stays below
+`alpha` as long as every group stays within the tolerance. A rejection is final and reports the decision at which the
+disparity was established and its e-value (evidence, ≥ 1 / alpha).
+
+- One test per monitored group against the reference group; `alpha` is split over the groups (Bonferroni).
+- Criteria: `demographic_parity` (selection rates) and `equal_opportunity` (true positive rates, needs `y_true`).
+- `tolerance`: absolute difference of rates considered acceptable (default 0.05); the test asks whether the gap
+  exceeds it, not whether it is exactly zero.
+- Batches can have any size and any group mix; unpaired observations wait for the next batch.
+
+```python
+from pulsar_metrics.fairness import FairnessMonitor
+
+monitor = FairnessMonitor("language", reference_group="en", groups=["fr"], tolerance=0.05, alpha=0.05)
+rng = np.random.default_rng(1)
+for day in range(30):
+    language = rng.choice(["fr", "en"], 400)
+    # from day 10 on, French-speaking applicants are approved 35 % of the time instead of 50 %
+    rate = np.where((language == "fr") & (day >= 10), 0.35, 0.5)
+    batch = pd.DataFrame({"language": language, "y_pred": (rng.random(400) < rate).astype(int)})
+    result = monitor.update(batch)[0]
+    if result.drift_status:
+        print(f"day {day}: disparity established after {result.n} pairs, e-value {result.e_value:.0f}")
+        break
+```
+
+```
+day 15: disparity established after 3184 pairs, e-value 21
+```
+
+A bias-injection bench (`benchmarks/fairness_drift.py`, 1,500 simulations per source, tolerance 0.05, alpha 0.05)
+measures the trade-off against a fixed-sample test re-run after every batch:
+
+| | Monitor (betting) | Fixed test re-run after each batch |
+|---|---|---|
+| False alarms, no disparity, 22,000 decisions (synthetic) | 0 – 1 % | 0 – 4 % |
+| False alarms, real gap just within the tolerance (ACSIncome, Folktables) | 1 – 2 % | 4 – 10 % |
+| Power, gap 0.09 beyond the tolerance, group ≥ 20 % of the stream | ≥ 0.99 | ≥ 0.94 (the others alarmed falsely before the injection) |
+| Median delay, synthetic, group 20 %, rate lowered by 0.10 | 10,000 decisions | 6,000 decisions |
+
+The guarantee costs detection delay (typically 1 to 3 times longer), most visibly for small groups and gaps barely
+beyond the tolerance.
 
 ## Custom metrics
 
