@@ -21,3 +21,7 @@ class CustomExceptionPulsarMetric(Exception):
         self.value = value
         self.message = message
         super().__init__(message)
+
+
+class MetricEvaluationError(CustomExceptionPulsarMetric):
+    """Raised when a metric cannot be computed (invalid data, missing column, failing function)"""

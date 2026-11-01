@@ -9,7 +9,7 @@ from typing import Optional, Union
 from pydantic import BaseModel, ValidationInfo, field_validator
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
-from ..utils import compare_to_threshold
+from ..utils import drift_from_threshold
 from .enums import (
     DriftMetricsFuncs,
     DriftTestMetricsFuncs,
@@ -28,6 +28,7 @@ class MetricResults(BaseModel):
     drift_status: Optional[bool] = None
     threshold: Optional[Union[float, int, str, list]] = None
     conf_int: Optional[list] = None
+    error: Optional[str] = None
 
     # TODO: validators for model id's, model's version, data_id, and metrics type
     @field_validator("metric_type")
@@ -98,7 +99,7 @@ def CustomMetric(func):
                 threshold = kwargs.get("threshold", None)
                 upper_bound = kwargs.get("upper_bound", True)
 
-                status = compare_to_threshold(value, threshold, upper_bound)
+                status = drift_from_threshold(value, threshold, upper_bound)
 
                 self._result = MetricResults(
                     metric_name=self._name,

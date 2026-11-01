@@ -1,9 +1,12 @@
+import logging
 from numbers import Number
-from typing import Union
+from typing import Optional, Union
 
 import pandas as pd
 
 from .exceptions import CustomExceptionPulsarMetric as error_msg
+
+logger = logging.getLogger(__name__)
 
 ERROR_MSG_VECTOR_THRESHOLD = "Vector Threshold should have only two distinct elements [Min,Max]"
 ERROR_MSG_MISSING_KEY = "Missing key for the column in the dataset"
@@ -51,7 +54,7 @@ def validate_dataframe(data: pd.DataFrame, y_name: str = "y_true", pred_name: st
             message=ERROR_MSG_MISSING_KEY,
         )
     else:
-        print("Input dataframe is validated in validate_dataframe()!")
+        logger.debug("Input dataframe is validated in validate_dataframe()")
         return True
 
 
@@ -89,3 +92,25 @@ def compare_to_threshold(value: float, threshold: Union[list, Number], upper_bou
         )
 
     return status
+
+
+def drift_from_threshold(value: float, threshold: Union[list, Number, None], upper_bound: bool = True) -> Optional[bool]:
+    """Return True when the value violates its threshold, i.e. a drift or a degradation is detected
+
+    Parameters
+    ----------
+    value : float
+        The metric value
+    threshold : Union[list, Number, None]
+        Single bound, or acceptable interval [Min, Max]; None means no verdict
+    upper_bound : bool, optional
+        True if the single threshold is the maximum acceptable value, False if it is the minimum
+
+    Returns
+    -------
+    Optional[bool]
+        True for drift, False for no drift, None when no threshold is given
+    """
+    if threshold is None:
+        return None
+    return not compare_to_threshold(value, threshold, upper_bound)

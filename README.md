@@ -23,6 +23,18 @@ uv run ruff check . && uv run black --check .
 `tests/test_characterization.py` freezes the output of every metric in `tests/golden/metrics_reference.json`.
 Regenerate it only after an intended behaviour change: `uv run python -m tests.test_characterization`.
 
+### Drift status and errors
+
+Every `MetricResults` follows the same convention:
+
+- `drift_status=True` means a drift or a degradation is detected, `False` means none, `None` means no verdict (no threshold given).
+- Statistical tests (`DriftTestMetric`): drift when the p-value is below `alpha`.
+- Distance metrics (`DriftMetric`, custom metrics): drift when the value exceeds the threshold (`upper_bound=True`, default), falls below it (`upper_bound=False`), or lies outside a `[Min, Max]` interval.
+- Performance metrics: the threshold is a minimum for accuracy, precision, recall, f1, auc, aucpr and r2, and a maximum for error metrics (log_loss, brier, mse, mae, mape); `upper_bound` overrides it.
+
+A metric that cannot be computed raises `MetricEvaluationError`. `Analyzer.run()` does not stop on such a failure: it logs a warning
+(logger `pulsar_metrics.analyzers.base`) and records a result with `metric_value=None`, `drift_status=None` and the message in `error`.
+
 ## Getting started
 
 ### Pulsar-metrics components

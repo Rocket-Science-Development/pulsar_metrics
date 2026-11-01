@@ -4,7 +4,8 @@ from typing import Union
 import pandas as pd
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
-from ..utils import compare_to_threshold
+from ..exceptions import MetricEvaluationError
+from ..utils import drift_from_threshold
 from . import constant
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
@@ -55,7 +56,8 @@ class DriftMetric(AbstractMetrics):
         threshold : Union[list, float, int]
                 Threshold values to validate the input value
         upper_bound : bool, optional
-                A flag used to set the upper_bound param
+                True (default) if the threshold is the maximum acceptable value: drift_status is True when
+                the value exceeds it. A [Min, Max] threshold flags values outside the interval
         kwargs :
                 keyworded variable length of arguments to a function
 
@@ -70,7 +72,7 @@ class DriftMetric(AbstractMetrics):
 
             value = DriftMetricsFuncs[self._name].value(self._column, ref_column, **kwargs)
 
-            status = compare_to_threshold(value, threshold, upper_bound)
+            status = drift_from_threshold(value, threshold, upper_bound)
 
             self._result = MetricResults(
                 metric_name=self._name,
@@ -85,7 +87,9 @@ class DriftMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(f"Exception in evaluate() in the DriftMetric class (drift): {str(e)}")
+            raise MetricEvaluationError(
+                value=self._name, message=f"Cannot evaluate drift metric {self._name} on {self._feature_name}: {e}"
+            ) from e
 
 
 class DriftTestMetric(AbstractMetrics):
@@ -106,11 +110,7 @@ class DriftTestMetric(AbstractMetrics):
 
         self._check_metrics_name(metric_name)
 
-        try:
-            self._feature_name = feature_name
-
-        except Exception as e:
-            print(f"Exception in DriftTestMetric() in the DriftMetric class(drift): {str(e)}")
+        self._feature_name = feature_name
 
     def _check_metrics_name(self, name: str):
         if name not in DriftTestMetricsFuncs._member_names_:
@@ -165,7 +165,9 @@ class DriftTestMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(f"Exception in evaluate() in the DriftMetric class (drift): {str(e)}")
+            raise MetricEvaluationError(
+                value=self._name, message=f"Cannot evaluate drift test {self._name} on {self._feature_name}: {e}"
+            ) from e
 
 
 def CustomDriftMetric(func):
@@ -182,7 +184,7 @@ def CustomDriftMetric(func):
                 threshold = kwargs.get("threshold", None)
                 upper_bound = kwargs.get("upper_bound", True)
 
-                status = compare_to_threshold(value, threshold, upper_bound)
+                status = drift_from_threshold(value, threshold, upper_bound)
 
                 self._result = MetricResults(
                     metric_name=self._name,
