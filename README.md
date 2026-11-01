@@ -1,191 +1,290 @@
 # pulsar-metrics
 
-Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user.
+[![Continuous Integration](https://github.com/Rocket-Science-Development/pulsar_metrics/actions/workflows/continuous-integration.yaml/badge.svg)](https://github.com/Rocket-Science-Development/pulsar_metrics/actions/workflows/continuous-integration.yaml)
+![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+**pulsar-metrics** is an open-source Python library for evaluating and monitoring **data drift**, **concept drift** and
+**model performance**. Every metric returns the same result structure with a value, an explicit drift verdict and,
+when something goes wrong, an error message instead of a silent failure. User-defined metrics are supported.
+
+It pairs with [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection), which
+collects features and predictions from a model serving code into InfluxDB.
+
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Results and drift verdicts](#results-and-drift-verdicts)
+- [Available metrics](#available-metrics)
+- [Computing metrics one by one](#computing-metrics-one-by-one)
+- [The Analyzer](#the-analyzer)
+- [Custom metrics](#custom-metrics)
+- [Development](#development)
+- [Changelog](CHANGELOG.md)
 
 ## Installation
 
-Requires Python 3.12 or later.
+Requires **Python 3.12 or later** (tested on 3.12 and 3.13).
 
 ```bash
 pip install "pulsar-metrics @ git+https://github.com/Rocket-Science-Development/pulsar_metrics.git"
 ```
 
-### Development
+Pin a commit or a tag for reproducible installs (`...pulsar_metrics.git@<sha>`). The PyPI release (0.1.3) predates the
+current API and only supports Python 3.9.
+
+Main dependencies: pandas >= 2.2 (< 3), numpy, scipy, scikit-learn, pydantic 2.
+
+## Quick start
+
+Compare a current window of predictions with a reference window (typically a hold-out set scored at training time):
+
+```python
+import numpy as np
+import pandas as pd
+
+from pulsar_metrics.analyzers.base import Analyzer
+
+rng = np.random.default_rng(0)
+
+
+def window(n, shift, start):
+    x = rng.normal(shift, 1, n)
+    return pd.DataFrame(
+        {
+            "model_id": "credit_model",
+            "model_version": "1.0",
+            "pred_timestamp": pd.date_range(start, periods=n, freq="min"),
+            "income": x,
+            "channel": rng.choice(["web", "branch"], size=n, p=[0.7, 0.3] if shift == 0 else [0.4, 0.6]),
+            "y_true": (x + rng.normal(0, 1, n) > 0).astype(int),
+            "y_pred": (x > 0).astype(int),
+        }
+    )
+
+
+reference = window(1000, 0.0, "2026-01-01")
+current = window(500, 0.8, "2026-02-01")
+
+analyzer = Analyzer(name="weekly check", model_id="credit_model", model_version="1.0")
+analyzer.add_drift_metrics(metrics_list=["ks_2samp", "wasserstein", "psi"], features_list=["income"])
+analyzer.add_drift_metrics(metrics_list=["chi2"], features_list=["channel"])
+analyzer.add_performance_metrics(metrics_list=["accuracy", "f1"])
+
+analyzer.run(
+    current=current,
+    reference=reference,
+    options={"wasserstein": {"threshold": 0.2}, "psi": {"threshold": 0.2}, "accuracy": {"threshold": 0.7}},
+)
+
+results = analyzer.results_to_pandas()
+metrics = results[results.metric_type != "statistics"].astype({"metric_value": float})
+print(metrics[["metric_name", "feature_name", "metric_value", "drift_status"]].to_string(index=False, float_format="{:.3g}".format))
+```
+
+```
+metric_name feature_name  metric_value drift_status
+   ks_2samp       income      3.63e-40         True    <- p-value below alpha (0.05)
+wasserstein       income         0.905         True    <- above the 0.2 threshold
+        psi       income         0.822         True
+       chi2      channel      2.67e-30         True
+   accuracy   prediction         0.834        False    <- above the 0.7 minimum
+         f1   prediction         0.889         None    <- no threshold given: value only
+```
+
+## Results and drift verdicts
+
+Every metric produces a `MetricResults` (pydantic model):
+
+| Field | Meaning |
+|---|---|
+| `metric_type` | `drift`, `performance`, `statistics` or `custom` |
+| `metric_name` | e.g. `ks_2samp`, `psi`, `accuracy` |
+| `feature_name` | Feature analyzed; `prediction` for performance metrics |
+| `metric_value` | Value of the metric (p-value for statistical tests) |
+| `threshold` | Threshold, `alpha` or `[min, max]` interval used for the verdict |
+| `drift_status` | **`True` = drift or degradation detected, `False` = none, `None` = no verdict** |
+| `conf_int` | Bootstrap confidence interval (performance metrics with `bootstrap=True`) |
+| `error` | Message when the metric could not be computed (`metric_value` and `drift_status` are then `None`) |
+
+The verdict follows **one convention for every metric**:
+
+- **Statistical tests** (`DriftTestMetric`): drift when the p-value is below `alpha` (default 0.05).
+- **Distance metrics** (`DriftMetric`) and custom metrics: drift when the value **exceeds** the threshold
+  (`upper_bound=True`, default), falls below it (`upper_bound=False`), or lies **outside** a `[min, max]` interval.
+- **Performance metrics**: the threshold is a **minimum** for accuracy, precision, recall, f1, auc, aucpr and r2, and a
+  **maximum** for error metrics (log_loss, brier, mse, mae, mape). Pass `upper_bound` to override.
+- **No threshold**: the value is computed and `drift_status` is `None`.
+
+Errors are explicit: a metric that cannot be computed (missing column, incompatible types, failing function) raises
+`pulsar_metrics.exceptions.MetricEvaluationError` with the original cause. `Analyzer.run()` does **not** stop on such a
+failure: it logs a warning (logger `pulsar_metrics.analyzers.base`), records a result with `error` set, and evaluates
+the remaining metrics.
+
+## Available metrics
+
+### Data drift: distances (`DriftMetric`, verdict on `threshold`)
+
+| Name | Metric | Notes |
+|---|---|---|
+| `psi` | [Population Stability Index](https://www.listendata.com/2015/05/population-stability-index.html) | $\sum (p_{cur} - p_{ref}) \ln(p_{cur}/p_{ref})$ on shared bins (numeric, Sturges rule) or categories. Common reading: < 0.1 stable, 0.1–0.2 moderate, > 0.2 significant |
+| `kl` | [Kullback-Leibler divergence](https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence) $D_{KL}(P_{cur} \parallel P_{ref})$ | Same binning as `psi`; zero for identical distributions |
+| `wasserstein` | [Wasserstein distance](https://en.wikipedia.org/wiki/Wasserstein_metric) $W_1$ | In the units of the feature: standardize features, or set thresholds per feature |
+| `mmd` | [Maximum Mean Discrepancy](https://jmlr.org/papers/v13/gretton12a.html) | Linear kernel by default (`kernel=` accepts scikit-learn pairwise kernels) |
+
+`psi` and `kl` add a small smoothing (`epsilon=1e-6`, then renormalisation) to every proportion, so that a category or
+bin absent from one sample gives a large but finite value instead of `inf`.
+
+### Data drift: statistical tests (`DriftTestMetric`, verdict on `alpha`)
+
+| Name | Test | Detects |
+|---|---|---|
+| `ttest` | [Welch's t-test](https://en.wikipedia.org/wiki/Welch%27s_t-test) | Shift of the mean |
+| `manwu` | [Mann-Whitney U](https://en.wikipedia.org/wiki/Mann%E2%80%93Whitney_U_test) | Shift of location (rank based) |
+| `levene` | [Levene](https://en.wikipedia.org/wiki/Levene%27s_test) (centered on the mean) | Change of variance |
+| `bftest` | [Brown-Forsythe](https://en.wikipedia.org/wiki/Brown%E2%80%93Forsythe_test) (Levene centered on the median) | Change of variance, robust to outliers |
+| `ks_2samp` | [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov%E2%80%93Smirnov_test) | Any change of distribution |
+| `CvM` | [Cramér-von Mises](https://en.wikipedia.org/wiki/Cram%C3%A9r%E2%80%93von_Mises_criterion) | Any change of distribution |
+| `chi2` | [Chi-squared test of homogeneity](https://en.wikipedia.org/wiki/Chi-squared_test) | Change of the frequencies of a **categorical** feature (2 x k contingency table, `scipy.stats.chi2_contingency`); samples may have different sizes; numeric features are binned |
+
+The statistical tests other than `chi2` apply to numeric features. For a categorical feature use `chi2`, `psi` or `kl`.
+
+### Performance (`PerformanceMetric`)
+
+| Name | Metric | Threshold | Predictions expected |
+|---|---|---|---|
+| `accuracy`, `precision`, `recall`, `f1` | Classification | minimum | labels (`y_pred`) |
+| `auc`, `aucpr` | ROC AUC, average precision | minimum | scores or probabilities |
+| `log_loss`, `brier` | Probabilistic losses | maximum | probabilities |
+| `mse`, `mae`, `mape` | Regression errors (`mape` = mean absolute percentage error) | maximum | values |
+| `r2` | Coefficient of determination | minimum | values |
+
+### Summary statistics (`FeatureSummary`)
+
+For each feature: mean, median, std, skewness, kurtosis, P25, P95 and count for numeric features; most frequent value
+and count for categorical, boolean and date features. The reference value is stored in `threshold` for comparison
+(`None` when the feature is absent from the reference).
+`Analyzer.run()` computes them for every column of the current dataset (`metric_type="statistics"`).
+
+## Computing metrics one by one
+
+```python
+from pulsar_metrics.metrics.drift import DriftMetric, DriftTestMetric
+from pulsar_metrics.metrics.performance import PerformanceMetric
+
+# Statistical test: verdict on alpha
+ks = DriftTestMetric(metric_name="ks_2samp", feature_name="income")
+print(ks.evaluate(current=current, reference=reference, alpha=0.01))
+
+# Distance: verdict on threshold (or a [min, max] interval)
+psi = DriftMetric(metric_name="psi", feature_name="income")
+print(psi.evaluate(current=current, reference=reference, threshold=0.2).drift_status)
+
+# Performance with a bootstrap confidence interval
+acc = PerformanceMetric(metric_name="accuracy", y_name="y_true", pred_name="y_pred")
+result = acc.evaluate(current=current, threshold=0.7, bootstrap=True, n_bootstrap=200, alpha=0.05, seed=123)
+print(result.metric_value, result.conf_int, result.drift_status)
+```
+
+Extra keyword arguments are passed to the underlying function, e.g. `kernel="rbf"` for `mmd` or `epsilon=1e-4` for
+`psi` and `kl`.
+
+## The Analyzer
+
+`Analyzer` runs a set of metrics on a current dataset against a reference dataset in one call.
+
+**Expected columns** in both datasets:
+
+| Column | Use |
+|---|---|
+| `model_id`, `model_version` | Rows are filtered on the analyzer's `model_id` and `model_version` |
+| `pred_timestamp` | Prediction time (dates or ISO strings, mixed precisions accepted); gives `period_start` / `period_end` |
+| features | Columns named in `features_list` |
+| `y_true`, `y_pred` (or names given with `y_name` / `pred_name`) | Performance metrics. Rows without ground truth make the metric fail with an explicit error |
+
+**Methods**
+
+| Method | Description |
+|---|---|
+| `add_drift_metrics(metrics_list, features_list)` | Adds every metric for every feature; unknown names raise an error |
+| `add_performance_metrics(metrics_list, **kwargs)` | Adds performance metrics; `y_name` / `pred_name` select the columns |
+| `run(current, reference, options={})` | Computes summary statistics and all metrics. `options` maps a **metric name** to its keyword arguments (`threshold`, `alpha`, `upper_bound`, `bootstrap`...); they apply to every feature for that metric |
+| `get_result()` | List of `MetricResults` |
+| `results_to_pandas()` | DataFrame of results plus model metadata (`model_id`, `model_version`, `period_start`, `period_end`, `eval_timestamp`) |
+| `results_to_json()` | List of JSON strings |
+
+Because `options` are set per metric name, distance thresholds are shared by all features: standardize numeric
+features against the reference (`(x - mean_ref) / std_ref`) or run one analyzer per group of features.
+
+## Custom metrics
+
+`CustomDriftMetric` turns a function of `(current_column, reference_column, **kwargs)` into a drift metric;
+`CustomMetric` turns a function of keyword arguments into a metric. Both follow the verdict convention above.
+
+```python
+from pulsar_metrics.metrics.base import CustomMetric
+from pulsar_metrics.metrics.drift import CustomDriftMetric
+
+
+@CustomDriftMetric
+def mean_shift(current, reference, **kwargs):
+    return abs(current.mean() - reference.mean())
+
+
+shift = mean_shift(metric_name="mean_shift", feature_name="income")
+print(shift.evaluate(current=current, reference=reference, threshold=0.5).drift_status)
+
+
+@CustomMetric
+def positive_rate(current, **kwargs):
+    return current["y_pred"].mean()
+
+
+rate = positive_rate(metric_name="positive_rate")
+print(rate.evaluate(current=current, threshold=[0.3, 0.7]).drift_status)  # drift outside the interval
+```
+
+Custom metrics are evaluated directly; `Analyzer` handles the built-in metrics.
+
+## Development
 
 The project uses [uv](https://docs.astral.sh/uv/) and a standard PEP 621 `pyproject.toml`.
 
 ```bash
-uv sync                 # creates .venv with runtime and dev dependencies
-uv run pytest           # unit and characterization tests
-uv run ruff check . && uv run black --check .
+uv sync                                         # .venv with runtime and dev dependencies
+uv run pytest                                   # unit and characterization tests, with coverage
+uv run ruff check . && uv run black --check .   # lint and formatting
 ```
 
-`tests/test_characterization.py` freezes the output of every metric in `tests/golden/metrics_reference.json`.
-Regenerate it only after an intended behaviour change: `uv run python -m tests.test_characterization`.
+`tests/test_characterization.py` freezes the output of every metric on a fixed synthetic dataset in
+`tests/golden/metrics_reference.json` (relative tolerance 1e-9). Any numerical change after a dependency upgrade fails
+the test. Regenerate the file only after an intended behaviour change:
 
-### Drift status and errors
-
-Every `MetricResults` follows the same convention:
-
-- `drift_status=True` means a drift or a degradation is detected, `False` means none, `None` means no verdict (no threshold given).
-- Statistical tests (`DriftTestMetric`): drift when the p-value is below `alpha`.
-- Distance metrics (`DriftMetric`, custom metrics): drift when the value exceeds the threshold (`upper_bound=True`, default), falls below it (`upper_bound=False`), or lies outside a `[Min, Max]` interval.
-- Performance metrics: the threshold is a minimum for accuracy, precision, recall, f1, auc, aucpr and r2, and a maximum for error metrics (log_loss, brier, mse, mae, mape); `upper_bound` overrides it.
-
-A metric that cannot be computed raises `MetricEvaluationError`. `Analyzer.run()` does not stop on such a failure: it logs a warning
-(logger `pulsar_metrics.analyzers.base`) and records a result with `metric_value=None`, `drift_status=None` and the message in `error`.
-
-## Getting started
-
-### Pulsar-metrics components
-
-There are two core components in pulsar-metrics: metrics and analyzers
-
-#### Metrics
-An API to calculate single metrics for data and concept drift. Metrics results are unified in a single data structure `MetricsResults` storing not only the metrics value, but also a couple of metadata related to the model and the data used for its calculation
-
-```
-MetricResults(metric_name=None, type='performance', model_id='model_1', model_version='1', data_id=None, feature=None, value=None, status=None, threshold=None, period_start=None, period_end=datetime.datetime(2022, 7, 1, 0, 0), eval_timestamp=datetime.datetime(2022, 9, 26, 10, 28, 27, 846122), conf_int=None)
+```bash
+uv run python -m tests.test_characterization
 ```
 
-There are three types of metrics:
-
-##### - Data drift metrics for the calculation of ditributional changes of the features used in the model. The metrics included so far are:
-###### [Kullback-Leibler (KL) divergence](https://en.wikipedia.org/wiki/Kullback–Leibler_divergence): This statistics measures how different is a probability distribution $P$ with respect to a reference probability distributiuon $Q$ (typically the probability distribution of the treaining features). More precisely, the KL divergence $D_{KL}(P||Q)$ is given by the fllowing formula $$D_{KL}(P||Q) = \sum_x P(x) \log \left ( \frac{P(x)}{Q(x)} \right )$$ $D_{KL}(P||Q)$ is always non-negative et is zero when the distributions are identical. Hence, a drift would be detected if its value is larger than a given threshold decided by the use Here $P$ is the current sample and $Q$ the reference sample, both binned on shared bins (numeric features) or counted per category; a small additive smoothing (`epsilon`, default $10^{-6}$) keeps the divergence finite when a category is absent from the reference.
-
-###### [Wasserstein distance](https://en.wikipedia.org/wiki/Wasserstein_metric) is a distance measure between two probability measures $Q$ and $P$. More precisely, the (first) Wassersetin distance $W_1(P, Q)$ is given by the formula $$W_1(P, Q) = \int_{-\infty}^{+\infty}|F_Q(x) - F_P(x)|dx$$ where $F_Q$ is the cumulative distribution function of $Q$. The metric is strctly non negative and a drift would be detected if its value is larger than a given threshold decided by the user.
-
-###### [T-test](https://en.wikipedia.org/wiki/Student%27s_t-test) is a 2 samples paremetric statistical test to detect a difference in the means of the distributions of the two samples. More precisely, the test used is the [Welch test](https://en.wikipedia.org/wiki/Welch%27s_t-test) in which the 2 samples do not necessarily have the same variance or size. Since it is a statistical test, a location drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
-
-###### [Mann-Whitney U test](https://en.wikipedia.org/wiki/Mann–Whitney_U_test) for location shift is a 2 sample non-parametric statistical test to detect a difference in the medians of the distrbutions of two samples. Since it is a statistical test, a location drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
-
-###### [Levene's test](https://en.wikipedia.org/wiki/Levene%27s_test) is a 2 samples parametric statistical test to detect a difference in the variances of the distributions of the two samples. Since it is a statistical test, a dispersion drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
-
-###### [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov–Smirnov_test) is a 2 samples nonparametric statistical test to check whether two samples come from the same distribution. The test statistics is given by $$D_{n, m} = \sup_x |F_{1, n}(x) - F_{2, m}(x)|$$ where $F_{1, m}$ is the empirical cumulative distrbutin functin of sample 1 with size $n$. Since it is a statistical test, a dispersion drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
-
-###### [Cramer von Mises test](https://en.wikipedia.org/wiki/Cramér–von_Mises_criterion) is a 2 samples nonparametric statistical test to check whether two samples come from the same distribution. The test statistics is given by $$T_{n, m} = \frac{nm}{n+m} \int_{-\infty}^{+\infty} |F_{1, n}(x) - F_{2, m}(x)|^2 dF_{n+m}$$ where $F_{1, m}$ is the empirical cumulative distrbutin functin of sample 1 with size $n$ and $F_{n+m}$ is the emprirical distribution function of the two samples together. Since it is a statistical test, a distributios drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
-
-###### [Chi-square test](https://en.wikipedia.org/wiki/Chi-squared_test) to compare the distribution of a categorical feature in 2 samples by comparing the frequencies of unique modalities (test of homogeneity on the 2 x k contingency table, `scipy.stats.chi2_contingency`; the samples may have different sizes, numeric features are binned on shared bins). Since it is a statistical test, a distribution drift is detected when the p-value is smaller than a significance level chosen by the user (default is 0.05).
-
-Data drift metrics are implemented either in the `DriftMetric` (For the KL divergence and the Wasserstein distance) or `DriftTestMetric` classes. The choice of the metric is specified with the `name` parameter in the init method according to the following table
-
-|Metric|Name|
-|------|----|
-|Kullback-Leibler divergence|'kl'|
-|Wasserstein distance|'wasserstein'|
-|T-test|'ttest'|
-|Mann Whitney U test|'manwu'|
-|Leven's test|'levene'|
-|Kolmgorv-Smirnov|'ks_2samp'|
-|Cramer von Mises test|'CvM'|
-|Chi square test|'chi2'|
-
-
-##### - Performance metrics for te calculation of the performance of classification and regression models. In particular, the following metrics are implemented:
-
-* Accuracy
-* Precision
-* Recall
-* f1-score
-* Log loss
-* AUC
-* AUCPR
-* Brier Score
-* Mean squarred error (MSE)
-* Mean absolute error (MAE)
-* Mean absolute percentage error (MAPE)
-* R-square score
-
-Performance metrics are implemented in the `PerformanceMetric` class.
-
-##### - Custom metrics. The user has the ability to define his own metric through the `@CustomMetric` decorator (see below for an example)
-
-All three types of metrics inherit the `AbstractMetrics` class.
-#### Analyzers
-
-An analyzer groups multiple metrics calculations in a single run. It allows to use which metrics to use and for which features.
-
-### Example usage
-
-To use the library, you need a reference dataset, typically the training dataset, and an analysis dataset which we want to compare with former.
-
-
-#### Calculating a single metric
-For a single metric, we first start by instantiating the appropriate metrics class by specifying the name of the metric ("ttest" in the example below)
-
-```python
-from pulsar_metrics.metrics.drift import DriftTestMetric
-driftTest = DriftTestMetric(name = 'ttest', data = data_new, feature_name = feature_name)
-```
-Then we run the `.evaluate()` method to calculate the metric
-
-```python
-driftTest.evaluate(alpha = 0.05, reference = data_ref[feature_name])
-```
-
-The result is returned through the `.get_result()` method of te metric object
-
-```python
-driftTest.get_result()
-```
-
-#### Using the analyzer
-When multiple metrics are required for different features, the analyzer allows one to calculate all the metrics at once.
-
-First, instantiate an analyzer object
-
-```python
-from pulsar_metrics.analyzers.base import Analyzer
-analysis = Analyzer(name = 'First Analyzer', description='My first Analyzer', data = data_new)
-```
-
-Then add the metrics of interest
-
-```python
-analysis.add_drift_metrics(metrics_list=['wasserstein', 'ttest', 'ks_2samp'], features_list=['Population', 'MedInc']);
-analysis.add_performance_metrics(metrics_list=['accuracy'], y_name = 'clf_target');
-```
-
-Then, you can run the analyzer while optionnally specfyings options for each metrics as a dictionnary for the `options` keywords
-
-```python
-analysis.run(data_ref = data_ref, options = {'ttest': {'alpha': 0.01, 'equal_var': False}})
-```
-
-It then possible to get the results of the analysis as a pandas dataFrame
-
-```python
-analysis.results_to_pandas()
-```
-
-![image](https://user-images.githubusercontent.com/105239615/206878435-b3bd2b8d-5196-45cd-9eb6-76d70e002c23.png)
-
-#### Creating a custom metric
-The `@CustomMetric` decorator allows to transform any function to the `AbstractMetrics` class
-
-```python
-from pulsar_metrics.metrics.base import CustomMetric
-@CustomMetric
-def test_custom(a, b, **kwargs):
-    return np.max(a - b)
-```
+Continuous integration runs lint and the tests on Python 3.12 and 3.13 for every pull request; tests are required to
+pass. Pushing a tag builds and publishes the package.
 
 ## About [PulsarML](https://pulsar.ml/)
 
-PulsarML is a project helping with monitoring your models and gain powerful insights into its performance.
+PulsarML helps monitor machine learning models in production and gain insights into their performance. It is made of
+two open-source packages:
 
-We released two Open Source packages :
-- [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection) :  lightweight python SDK enabling data collection of features, predictions and metadata from an ML model serving code/micro-service
-- [pulsar-metrics](https://github.com/Rocket-Science-Development/pulsar_metrics) : library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user.
+- [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection): lightweight SDK that
+  collects features, predictions and metadata from a model serving code into InfluxDB.
+- [pulsar-metrics](https://github.com/Rocket-Science-Development/pulsar_metrics): data drift, concept drift and
+  performance metrics, with custom metrics.
 
-We also created [pulsar demo](https://github.com/Rocket-Science-Development/pulsar_demo) to display an example use-case showing how to leverage both packages to implement model monitoring and performance management.
+[pulsar-demo](https://github.com/Rocket-Science-Development/pulsar_demo) shows an example use case combining both
+packages.
 
-Want to interact with the community? join our [slack channel](https://pulsarml.slack.com)
-
-Powered by [Rocket Science Development](https://rocketscience.one/)
+Powered by [Rocket Science Development](https://rocketscience.one/).
 
 ## Contributing
 
-1. Fork this repository, develop, and test your changes
-2. open an issue
-3. Submit a pull request with a reference to the issue
+1. Open an issue describing the change.
+2. Fork the repository, develop on a branch and add tests.
+3. Check `uv run pytest` and the linters, then submit a pull request referencing the issue.
+
+See [LICENSE](LICENSE).
