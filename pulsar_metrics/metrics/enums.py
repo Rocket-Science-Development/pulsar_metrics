@@ -3,9 +3,7 @@
 from enum import Enum, member
 from functools import partial
 
-from scipy.special import kl_div
 from scipy.stats import (
-    chisquare,
     cramervonmises_2samp,
     ks_2samp,
     levene,
@@ -20,6 +18,7 @@ from sklearn.metrics import (
     f1_score,
     log_loss,
     mean_absolute_error,
+    mean_absolute_percentage_error,
     mean_squared_error,
     precision_score,
     r2_score,
@@ -27,7 +26,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from .utils import max_mean_discrepency, population_stability_index
+from .utils import chi2_test, kl_divergence, max_mean_discrepency, population_stability_index
 
 
 class MetricsType(Enum):
@@ -40,7 +39,7 @@ class MetricsType(Enum):
 
 
 class DriftMetricsFuncs(Enum):
-    kl = member(partial(kl_div))
+    kl = member(partial(kl_divergence))
     psi = member(partial(population_stability_index))
     wasserstein = member(partial(wasserstein_distance))
     mmd = member(partial(max_mean_discrepency))
@@ -53,7 +52,7 @@ class DriftTestMetricsFuncs(Enum):
     bftest = member(partial(levene, center="median"))
     ks_2samp = member(partial(ks_2samp))
     CvM = member(partial(cramervonmises_2samp))
-    chi2 = member(partial(chisquare))
+    chi2 = member(partial(chi2_test))
 
 
 class PerformanceMetricsFuncs(Enum):
@@ -74,5 +73,5 @@ class PerformanceMetricsFuncs(Enum):
     # Regression metrics
     mse = member(partial(mean_squared_error))
     mae = member(partial(mean_absolute_error))
-    mape = member(partial(mean_absolute_error))
+    mape = member(partial(mean_absolute_percentage_error))
     r2 = member(partial(r2_score))
