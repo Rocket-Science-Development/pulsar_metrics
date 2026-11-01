@@ -6,7 +6,13 @@ from sklearn.metrics import mean_absolute_percentage_error
 
 from pulsar_metrics.metrics.drift import DriftMetric, DriftTestMetric
 from pulsar_metrics.metrics.performance import PerformanceMetric
-from pulsar_metrics.metrics.utils import chi2_test, get_population_counts, get_population_percentages, kl_divergence
+from pulsar_metrics.metrics.utils import (
+    chi2_test,
+    get_population_counts,
+    get_population_percentages,
+    kl_divergence,
+    population_stability_index,
+)
 
 TOOLS_REFERENCE = pd.Series(["search"] * 50 + ["calculator"] * 30 + ["calendar"] * 20)
 
@@ -67,6 +73,41 @@ def test_kl_returns_a_scalar_through_drift_metric():
     )
     assert isinstance(result.metric_value, float)
     assert result.metric_value > 0.1
+
+
+# Population stability index
+# ==============================
+
+
+def test_psi_matches_the_classic_formula_without_empty_bins():
+    new = pd.Series(["search"] * 20 + ["calculator"] * 40 + ["calendar"] * 40)
+    p, q = np.array([0.2, 0.4, 0.4]), np.array([0.5, 0.3, 0.2])
+    order = ["search", "calculator", "calendar"]
+    counts = get_population_counts(new, TOOLS_REFERENCE).loc[order]
+    assert list(counts["new"]) == [20, 40, 40]
+    assert population_stability_index(new, TOOLS_REFERENCE, epsilon=0) == pytest.approx(
+        ((p - q) * np.log(p / q)).sum(), rel=1e-12
+    )
+
+
+def test_psi_is_finite_when_a_bin_is_empty_in_the_reference():
+    new = pd.Series(["search"] * 50 + ["email"] * 50)
+    value = population_stability_index(new, TOOLS_REFERENCE)
+    assert np.isfinite(value) and value > 0.2
+
+
+def test_psi_is_zero_for_identical_distributions():
+    assert population_stability_index(TOOLS_REFERENCE.copy(), TOOLS_REFERENCE) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_psi_accepts_pre_binned_counts():
+    reference = pd.Series([50, 30, 20], index=["a", "b", "c"])
+    new = pd.Series([20, 40, 40], index=["a", "b", "c"])
+    raw_new = pd.Series(["a"] * 20 + ["b"] * 40 + ["c"] * 40)
+    raw_reference = pd.Series(["a"] * 50 + ["b"] * 30 + ["c"] * 20)
+    assert population_stability_index(new, reference, binned=True) == pytest.approx(
+        population_stability_index(raw_new, raw_reference), rel=1e-12
+    )
 
 
 # Chi-squared test
