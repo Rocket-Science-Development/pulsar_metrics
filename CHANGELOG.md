@@ -2,6 +2,19 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-11-01
+
+### Added
+- `pulsar_metrics.fairness`: group fairness of decisions. Criteria: disparate impact ratio (4/5 rule), demographic
+  parity, equal opportunity, false positive rate, equalized odds, calibration and error-rate differences, each against
+  a reference group (default: the largest). Prediction-based criteria by default; label-based ones on request.
+  Stratified bootstrap confidence intervals, simultaneous over groups (max-t band); three-way verdict (established /
+  within the zone / inconclusive) from the interval, never from the point estimate alone; suppression of groups below
+  `min_group_size`; intersectional groups; in-memory join of protected attributes on a pseudonymous id.
+- `MetricResults`: optional group-level fields `group`, `reference_group`, `n`, `ci_low`, `ci_high`, `method`,
+  `test_type`, `e_value`, `suppressed`; new metric type `fairness`.
+- Validated against Fairlearn 0.15 on ACSIncome (Folktables, MA 2018): identical values.
+
 ## [0.5.1] - 2026-11-01
 
 ### Changed

@@ -28,6 +28,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [Calibrated thresholds and multiple testing](#calibrated-thresholds-and-multiple-testing)
 - [Confirming drift over successive windows](#confirming-drift-over-successive-windows)
 - [Monitoring LLM applications and agents](#monitoring-llm-applications-and-agents)
+- [Group fairness](#group-fairness)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
 - [Changelog](CHANGELOG.md)
@@ -367,6 +368,70 @@ wasserstein tool_error_rate    0.006633      True
 The tool distribution (`first_tool`) is unchanged, while steps, latency and tool errors drift: the signature of a
 degraded tool rather than of a change in the requests. Feed each window's results to `DriftPersistence` to raise an
 alert only when the drift lasts.
+
+## Group fairness
+
+`pulsar_metrics.fairness` compares a decision rule across groups defined by protected attributes. It follows what the
+literature identifies as the weak points of fairness tooling: small groups, multiple groups and verdicts based on point
+estimates. Every result carries the group size and a confidence interval, and **a disparity is flagged only when the
+interval lies entirely outside the acceptable zone**.
+
+| Criterion | Compares (group vs reference group) | Default acceptable zone | Needs |
+|---|---|---|---|
+| `disparate_impact_ratio` | selection rate ratio (4/5 rule) | [0.8, 1.25] | decisions |
+| `demographic_parity_difference` | selection rate difference | [-0.1, 0.1] | decisions |
+| `equal_opportunity_difference` | true positive rate difference | [-0.1, 0.1] | labels |
+| `false_positive_rate_difference` | false positive rate difference | [-0.1, 0.1] | labels |
+| `equalized_odds_difference` | max of the TPR and FPR differences (absolute) | [0, 0.1] | labels |
+| `calibration_difference` | expected calibration error difference | [-0.05, 0.05] | labels and scores |
+| `error_rate_difference` | mean absolute error difference (regression) | set it in the policy | labels |
+
+- **Prediction-based criteria are the default.** Label-based ones must be chosen explicitly: labels arrive late and
+  carry the biases of past decisions. Calibration and equalized odds cannot both hold when base rates differ: the
+  choice belongs to the user (and to the impact assessment), not to the tool.
+- **Verdict** (`drift_status`): `True` = disparity established (interval outside the zone), `False` = within the zone,
+  `None` = inconclusive (the interval straddles a bound, typically a small group).
+- **Intervals**: stratified bootstrap (each group resampled within itself); with several groups, a **simultaneous**
+  max-t band so that the confidence level holds for all groups at once.
+- **Small cells are suppressed** (`min_group_size`, default 30): no value and no count are published for them.
+- **Intersections**: `intersections=True` also evaluates every combination of attributes (`sex=F|region=North`).
+- **Protected attributes do not need to travel with the predictions**: pass them separately with a pseudonymous id;
+  the join happens in memory and only group-level results come out.
+
+```python
+from pulsar_metrics.fairness import FairnessAnalyzer, FairnessPolicy
+
+rng = np.random.default_rng(7)
+n = 4000
+applicants = pd.DataFrame({"applicant_id": [f"a{i}" for i in range(n)], "region": rng.choice(["North", "South"], n)})
+applicants["language"] = rng.choice(["fr", "en"], n)
+# decisions: the rule approves 50 % of English-speaking applicants but 35 % of French-speaking ones
+approved = rng.random(n) < np.where(applicants["language"] == "fr", 0.35, 0.5)
+predictions = pd.DataFrame({"applicant_id": applicants["applicant_id"], "y_pred": approved.astype(int)})
+
+fairness = FairnessAnalyzer(
+    ["language", "region"],
+    FairnessPolicy(criteria=["disparate_impact_ratio", "demographic_parity_difference"], min_group_size=30),
+    reference_groups={"language": "en"},
+    intersections=True,
+)
+fairness.run(predictions, attributes_data=applicants, on="applicant_id")
+report = fairness.results_to_pandas().query("metric_name == 'disparate_impact_ratio'")
+print(report[["feature_name", "group", "reference_group", "n", "metric_value", "ci_low", "ci_high", "drift_status"]]
+      .round(3).to_string(index=False))
+```
+
+```
+   feature_name                    group          reference_group    n  metric_value  ci_low  ci_high  drift_status
+       language              language=fr              language=en 2023         0.701   0.648    0.750          True
+         region             region=South             region=North 1999         1.011   0.933    1.087         False
+language|region language=fr|region=South language=fr|region=North 1007         1.026   0.883    1.169         False
+language|region language=en|region=South language=fr|region=North  992         1.442   1.257    1.628          True
+language|region language=en|region=North language=fr|region=North  985         1.446   1.263    1.629          True
+```
+
+Validated against [Fairlearn](https://fairlearn.org) on ACSIncome (Folktables, Massachusetts 2018, 12,035 test
+rows): identical disparate impact ratio, equal opportunity and equalized odds differences for sex (difference 0).
 
 ## Custom metrics
 
