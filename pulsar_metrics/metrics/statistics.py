@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Sequence
 
-from . import constant
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_numeric_dtype
 from scipy.stats import kurtosis, skew
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+from . import constant
 from .base import MetricResults
 
 _numeric_dict = {"mean": np.mean, "median": np.median, "std": np.std, "skewness": skew, "kurtosis": kurtosis}
@@ -63,7 +63,7 @@ class FeatureSummaryAbstract(ABC):
         if self._result is None:
             return None
         else:
-            return pd.DataFrame.from_records([self._result[i].dict() for i in range(len(self._result))])
+            return pd.DataFrame.from_records([self._result[i].model_dump() for i in range(len(self._result))])
 
 
 class FeatureSummary(FeatureSummaryAbstract):

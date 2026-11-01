@@ -1,11 +1,11 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 from typing import Union
 
-from . import constant
 import pandas as pd
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
+from . import constant
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
 

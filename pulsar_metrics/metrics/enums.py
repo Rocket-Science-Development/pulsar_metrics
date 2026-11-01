@@ -31,7 +31,6 @@ from .utils import max_mean_discrepency, population_stability_index
 
 
 class MetricsType(Enum):
-
     """Metrics type enumeration"""
 
     performance = "performance"
@@ -58,7 +57,6 @@ class DriftTestMetricsFuncs(Enum):
 
 
 class PerformanceMetricsFuncs(Enum):
-
     """Set of performance metrics functions"""
 
     # Classification Metrics

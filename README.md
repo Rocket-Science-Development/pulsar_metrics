@@ -2,6 +2,27 @@
 
 Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user.
 
+## Installation
+
+Requires Python 3.12 or later.
+
+```bash
+pip install "pulsar-metrics @ git+https://github.com/Rocket-Science-Development/pulsar_metrics.git"
+```
+
+### Development
+
+The project uses [uv](https://docs.astral.sh/uv/) and a standard PEP 621 `pyproject.toml`.
+
+```bash
+uv sync                 # creates .venv with runtime and dev dependencies
+uv run pytest           # unit and characterization tests
+uv run ruff check . && uv run black --check .
+```
+
+`tests/test_characterization.py` freezes the output of every metric in `tests/golden/metrics_reference.json`.
+Regenerate it only after an intended behaviour change: `uv run python -m tests.test_characterization`.
+
 ## Getting started
 
 ### Pulsar-metrics components

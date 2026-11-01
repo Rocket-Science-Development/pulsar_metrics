@@ -7,6 +7,7 @@ when upgrading dependencies (Python, pandas, numpy, scipy, scikit-learn, pydanti
 Regenerate the reference file (only after an intended behaviour change):
     python -m tests.test_characterization
 """
+
 import contextlib
 import hashlib
 import io
@@ -143,9 +144,9 @@ def assert_close(actual, expected, label: str):
         for a, e in zip(actual, expected):
             assert_close(a, e, label)
     elif isinstance(expected, float):
-        assert actual is not None and math.isclose(actual, expected, rel_tol=REL_TOL, abs_tol=ABS_TOL), (
-            f"{label}: {actual} != {expected}"
-        )
+        assert actual is not None and math.isclose(
+            actual, expected, rel_tol=REL_TOL, abs_tol=ABS_TOL
+        ), f"{label}: {actual} != {expected}"
     else:
         assert actual == expected, f"{label}: {actual!r} != {expected!r}"
 

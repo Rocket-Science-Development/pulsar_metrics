@@ -69,13 +69,13 @@ class AbstractAnalyzer(ABC):
 
     def results_to_json(self):
         empty_dict = {}
-        result = empty_dict if self._results is None else [result.json() for result in self._results]
+        result = empty_dict if self._results is None else [result.model_dump_json() for result in self._results]
         return result
 
     def results_to_pandas(self):
         results = None
         if self._results is not None:
-            results = pd.DataFrame.from_records([self._results[i].dict() for i in range(len(self._results))])
+            results = pd.DataFrame.from_records([self._results[i].model_dump() for i in range(len(self._results))])
             for key, value in self._metadata.items():
                 if key not in ["name", "description", "options"]:
                     results[key] = value
@@ -183,7 +183,7 @@ class Analyzer(AbstractAnalyzer):
 
         cur_model_id_validation = current.model_id == self._metadata["model_id"]
         cur_model_version_validation = current.model_version == self._metadata["model_version"]
-        df_current = current.loc[cur_model_id_validation & cur_model_version_validation]
+        df_current = current.loc[cur_model_id_validation & cur_model_version_validation].copy()
 
         df_current["pred_timestamp"] = pd.to_datetime(df_current["pred_timestamp"])
 

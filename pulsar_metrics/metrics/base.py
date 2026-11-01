@@ -3,10 +3,10 @@
 from abc import ABC, abstractmethod
 
 # from datetime import datetime
-from typing import Union
+from typing import Optional, Union
 
 # import pandas as pd
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, ValidationInfo, field_validator
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..utils import compare_to_threshold
@@ -23,15 +23,16 @@ class MetricResults(BaseModel):
 
     metric_type: str
     metric_name: str
-    feature_name: str = None
-    metric_value: Union[float, int, str] = None
-    drift_status: bool = None
-    threshold: Union[float, int, str, list] = None
-    conf_int: list = None
+    feature_name: Optional[str] = None
+    metric_value: Optional[Union[float, int, str]] = None
+    drift_status: Optional[bool] = None
+    threshold: Optional[Union[float, int, str, list]] = None
+    conf_int: Optional[list] = None
 
     # TODO: validators for model id's, model's version, data_id, and metrics type
-    @validator("metric_type", always=True)
-    def metric_type_is_invalid(cls, v, **kwargs):
+    @field_validator("metric_type")
+    @classmethod
+    def metric_type_is_invalid(cls, v):
         if (v not in MetricsType._member_names_) and (v is not None):
             raise error_msg(
                 value=None,
@@ -39,12 +40,15 @@ class MetricResults(BaseModel):
             )
         return v
 
-    @validator("metric_name", always=True)
-    def metric_name_is_invalid(cls, v, values, **kwargs):
+    @field_validator("metric_name")
+    @classmethod
+    def metric_name_is_invalid(cls, v, info: ValidationInfo):
         metric_names = (
             PerformanceMetricsFuncs._member_names_ + DriftMetricsFuncs._member_names_ + DriftTestMetricsFuncs._member_names_
         )
-        if (v not in metric_names) and (values["metric_type"] not in [MetricsType.custom.value, MetricsType.statistics.value]):
+        if (v not in metric_names) and (
+            info.data.get("metric_type") not in [MetricsType.custom.value, MetricsType.statistics.value]
+        ):
             raise error_msg(
                 value=None,
                 message=f'{"ValueError:Metric name {v} is invalid"}',
