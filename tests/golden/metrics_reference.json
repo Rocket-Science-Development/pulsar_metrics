@@ -111,9 +111,27 @@
    "metric_value": 0.18213481345533616,
    "threshold": 0.5
   },
-  "chi2|x1": null,
-  "chi2|x2": null,
-  "chi2|x3": null,
+  "chi2|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.0008003854385385606,
+   "threshold": 0.05
+  },
+  "chi2|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.0002128285120920157,
+   "threshold": 0.05
+  },
+  "chi2|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 0.7907196693362123,
+   "threshold": 0.05
+  },
   "f1|None": {
    "conf_int": null,
    "drift_status": false,
@@ -131,9 +149,27 @@
    "metric_value": 0.6727272727272727,
    "threshold": 0.5
   },
-  "kl|x1": null,
-  "kl|x2": null,
-  "kl|x3": null,
+  "kl|x1": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.0706623166459282,
+   "threshold": 0.5
+  },
+  "kl|x2": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.147322523709058,
+   "threshold": 0.5
+  },
+  "kl|x3": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "drift",
+   "metric_value": 0.0038546205124371236,
+   "threshold": 0.5
+  },
   "ks_2samp|x1": {
    "conf_int": null,
    "drift_status": true,
@@ -233,19 +269,19 @@
   },
   "mape|None": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
-   "metric_value": 0.27,
+   "metric_value": 529172956216033.44,
    "threshold": 0.5
   },
   "mape|bootstrap": {
    "conf_int": [
-    0.23,
-    0.3125
+    416582965531771.06,
+    647673921411219.4
    ],
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
-   "metric_value": 0.27,
+   "metric_value": 529172956216033.44,
    "threshold": 0.5
   },
   "mmd|x1": {

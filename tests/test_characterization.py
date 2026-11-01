@@ -34,10 +34,7 @@ REL_TOL = 1e-9
 ABS_TOL = 1e-12
 
 # Metrics that currently fail on this dataset (known defects, tracked separately)
-KNOWN_FAILURES = {
-    "kl": "kl_div is element-wise and returns an array that MetricResults rejects",
-    "chi2": "chisquare is applied to raw samples of different sizes",
-}
+KNOWN_FAILURES: dict[str, str] = {}
 
 
 def make_data(n: int, shift: float, start: str, rng: np.random.Generator) -> pd.DataFrame:
