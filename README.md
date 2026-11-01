@@ -18,6 +18,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [Available metrics](#available-metrics)
 - [Computing metrics one by one](#computing-metrics-one-by-one)
 - [The Analyzer](#the-analyzer)
+- [Calibrated thresholds and multiple testing](#calibrated-thresholds-and-multiple-testing)
 - [Confirming drift over successive windows](#confirming-drift-over-successive-windows)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
@@ -216,6 +217,45 @@ Extra keyword arguments are passed to the underlying function, e.g. `kernel="rbf
 
 Because `options` are set per metric name, distance thresholds are shared by all features: standardize numeric
 features against the reference (`(x - mean_ref) / std_ref`) or run one analyzer per group of features.
+
+## Calibrated thresholds and multiple testing
+
+A nominal rule such as "drift if p < 0.05" assumes independent samples. Production traffic, and LLM or agent traffic in
+particular (non-deterministic outputs, correlated requests), breaks that assumption, and the nominal rule then raises
+alerts without any change. On an autocorrelated stream (AR(1), phi = 0.9, windows of 200), `ks_2samp` with p < 0.05
+flagged **71 %** of A/A windows taken from the same process; with the calibrated threshold, **2 %**.
+
+`AACalibrator` draws `n_draws` pairs of windows from the reference ("A/A": same system, no change) and builds the
+distribution of each statistic without drift. It gives per-feature thresholds for the Analyzer and an empirical p-value
+for any statistic, on which `fdr_correct` applies the Benjamini-Hochberg correction across all features of a window.
+
+```python
+from pulsar_metrics.calibration import AACalibrator
+from pulsar_metrics.multiple_testing import fdr_correct
+
+monitor = Analyzer(name="calibrated", model_id="credit_model", model_version="1.0")
+monitor.add_drift_metrics(metrics_list=["ks_2samp", "wasserstein"], features_list=["income"])
+
+# reference sorted by time, holding at least 10 production windows; window_size = size of the production windows
+long_reference = window(6000, 0.0, "2025-12-01")
+calibrator = AACalibrator(window_size=300, n_draws=200, quantile=0.95).fit(long_reference, monitor._metrics_list)
+print(calibrator.options())  # {"ks_2samp|income": {"alpha": ...}, "wasserstein|income": {"threshold": ...}}
+
+monitor.run(current=window(300, 0.8, "2026-03-01"), reference=long_reference, options=calibrator.options())
+drift = monitor.results_to_pandas().query("metric_type == 'drift'").copy()
+drift["p_empirical"] = calibrator.empirical_pvalues(drift)
+print(fdr_correct(drift, "p_empirical", alpha=0.05)[["metric_name", "feature_name", "p_adjusted", "drift_fdr"]])
+```
+
+- `window_size` must match the production windows: the null distribution depends strongly on the sample size.
+- The reference must hold **at least 10 windows** (a warning is emitted otherwise). With 3 windows of 300 in a
+  1,000-row reference, the A/A draws overlap and the calibrated `alpha` of `ks_2samp` came out at 0.34 on independent
+  data; with 10 windows or more it is back to about 0.05.
+- `contiguous=True` (default) draws contiguous windows from a time-sorted reference, keeping the temporal dependence
+  of real traffic; random rows (`contiguous=False`) would hide it and under-estimate false alarms.
+- `options` keys `"metric|feature"` take precedence over per-metric keys in `Analyzer.run()`.
+- `false_alarm_rate(metric, feature)` reports how often the nominal p < 0.05 rule fires on A/A draws: a direct measure
+  of how misleading it would be on this traffic.
 
 ## Confirming drift over successive windows
 

@@ -168,7 +168,8 @@ class Analyzer(AbstractAnalyzer):
         reference : DataFrame
             The input reference (pandas DataFrame)
         options : dict,optional
-            List of performance metrics names
+            Keyword arguments per metric name ({"psi": {"threshold": 0.2}}), or per metric and feature
+            ({"psi|income": {"threshold": 0.15}}, e.g. AACalibrator.options()), which takes precedence
         """
 
         ref_model_id_validation = reference.model_id == self._metadata["model_id"]
@@ -226,7 +227,9 @@ class Analyzer(AbstractAnalyzer):
                         )
                     )
             for metric in tqdm(self._metrics_list):
-                kwargs = options.get(metric._name, {})
+                # options per feature ("metric|feature", e.g. calibrated thresholds) take precedence over per metric
+                feature = getattr(metric, "_feature_name", None)
+                kwargs = options.get(f"{metric._name}|{feature}", options.get(metric._name, {}))
                 try:
                     if isinstance(metric, PerformanceMetric) and (
                         metric._y_name not in df_current.columns or df_current[metric._y_name].isnull().any()
