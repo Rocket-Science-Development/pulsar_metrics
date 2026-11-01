@@ -498,7 +498,7 @@ request for authentication, a refusal), and they judge it against controls rathe
 | `counterfactual_action_rate_difference` | rate of a given action in the group minus in the reference group, paired by set (BCa bootstrap); McNemar exact test, Benjamini-Hochberg over groups, in `method` | outside `rate_zone` |
 | `counterfactual_action_rate_ratio` | same rates, ratio (4/5 rule) | outside `ratio_zone` |
 | `position_effect` | comparative probes: share of answers picking the first profile; `True` = the answers depend on the order | binomial test |
-| `tie_rate`, `comparative_preference` | share of ties; probability of choosing a group, averaged over both orders | outside `preference_zone` |
+| `tie_rate`, `comparative_preference` | share of ties; probability of choosing a group, averaged over both orders | outside `preference_zone`; when the answers depend on the order, only a preference strong enough to show through is reported, never its absence |
 
 ```python
 from pulsar_metrics.fairness import counterfactual_analysis

@@ -105,7 +105,21 @@ def test_position_effect_is_flagged_and_cancelled():
     position = get(results, "position_effect")[0]
     assert position.drift_status is True and position.metric_value > 0.65
     preference = get(results, "comparative_preference")[0]
-    assert preference.drift_status is False and abs(preference.metric_value - 0.5) < 0.05
+    # balanced estimate is still close to 1/2, but a biased instrument cannot certify the absence of preference
+    assert preference.drift_status is None and abs(preference.metric_value - 0.5) < 0.05
+    assert "depend on the order" in preference.method
+
+
+def test_order_only_answers_give_no_verdict():
+    # the model always answers the second slot (seen with llama3.2:3b): no information on the groups
+    results = comparative_analysis(
+        comparative_rows(60, p_first=0.0, p_prefer_a=0.5)
+        .assign(choice="second")
+        .pipe(lambda f: f.assign(chosen_group=f["second_group"]))
+    )
+    assert get(results, "position_effect")[0].drift_status is True
+    preference = get(results, "comparative_preference")[0]
+    assert preference.drift_status is None and "0 of 60 sets" in preference.method
 
 
 def test_comparative_preference_detected():

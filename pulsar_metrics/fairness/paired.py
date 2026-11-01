@@ -279,8 +279,10 @@ def comparative_analysis(
     decided = rows[rows["choice"] != "tie"]
     k, n = int((decided["choice"] == "first").sum()), len(decided)
     out = []
+    position_biased = False
     if n:
         test = stats.binomtest(k, n, 0.5)
+        position_biased = bool(test.pvalue < alpha)
         ci = test.proportion_ci(confidence_level=confidence, method="wilson")
         out.append(
             MetricResults(
@@ -292,7 +294,7 @@ def comparative_analysis(
                 ci_high=float(ci.high),
                 n=n,
                 threshold=0.5,
-                drift_status=bool(test.pvalue < alpha),
+                drift_status=position_biased,
                 method=f"share of non-tie answers choosing the first profile; binomial test against 0.5, p = {test.pvalue:.3g}; "
                 "True = the answers depend on the order (instrument control)",
                 test_type="fixed",
@@ -325,6 +327,13 @@ def comparative_analysis(
             continue
         value = float(values.mean())
         low, high, how = _bootstrap((values,), np.mean, confidence, n_resamples, seed)
+        status = verdict(low, high, value, preference_zone)
+        consistent = int(((values == 0) | (values == 1)).sum())  # both orders chose the same group
+        note = f"; {consistent} of {len(values)} sets chose the same group in both orders"
+        if position_biased and status is not True:
+            # an instrument driven by the order can reveal a strong preference, not certify that there is none
+            status = None
+            note += "; no verdict of absence: the answers depend on the order"
         out.append(
             MetricResults(
                 metric_type="fairness",
@@ -337,8 +346,9 @@ def comparative_analysis(
                 ci_high=high,
                 n=len(values),
                 threshold=list(preference_zone),
-                drift_status=verdict(low, high, value, preference_zone),
-                method=f"probability of choosing the group, averaged over both orders (ties = 1/2); {how} bootstrap over sets",
+                drift_status=status,
+                method=f"probability of choosing the group, averaged over both orders (ties = 1/2); {how} bootstrap over sets"
+                + note,
                 test_type="fixed",
             )
         )
