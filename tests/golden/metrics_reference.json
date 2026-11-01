@@ -96,7 +96,7 @@
   },
   "brier|None": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
    "metric_value": 0.18213481345533616,
    "threshold": 0.5
@@ -106,7 +106,7 @@
     0.16404861724178377,
     0.1996196641674123
    ],
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
    "metric_value": 0.18213481345533616,
    "threshold": 0.5
@@ -151,21 +151,21 @@
   },
   "kl|x1": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.0706623166459282,
    "threshold": 0.5
   },
   "kl|x2": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.147322523709058,
    "threshold": 0.5
   },
   "kl|x3": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.0038546205124371236,
    "threshold": 0.5
@@ -214,7 +214,7 @@
   },
   "log_loss|None": {
    "conf_int": null,
-   "drift_status": false,
+   "drift_status": true,
    "metric_type": "performance",
    "metric_value": 0.5459100141001719,
    "threshold": 0.5
@@ -224,14 +224,14 @@
     0.5017662520643824,
     0.5880456874882354
    ],
-   "drift_status": false,
+   "drift_status": true,
    "metric_type": "performance",
    "metric_value": 0.5459100141001719,
    "threshold": 0.5
   },
   "mae|None": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
    "metric_value": 0.27,
    "threshold": 0.5
@@ -241,7 +241,7 @@
     0.23,
     0.3125
    ],
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
    "metric_value": 0.27,
    "threshold": 0.5
@@ -269,7 +269,7 @@
   },
   "mape|None": {
    "conf_int": null,
-   "drift_status": false,
+   "drift_status": true,
    "metric_type": "performance",
    "metric_value": 529172956216033.44,
    "threshold": 0.5
@@ -279,35 +279,35 @@
     416582965531771.06,
     647673921411219.4
    ],
-   "drift_status": false,
+   "drift_status": true,
    "metric_type": "performance",
    "metric_value": 529172956216033.44,
    "threshold": 0.5
   },
   "mmd|x1": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.1039524091688574,
    "threshold": 0.5
   },
   "mmd|x2": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.1817110995769391,
    "threshold": 0.5
   },
   "mmd|x3": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.002550249999999643,
    "threshold": 0.5
   },
   "mse|None": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
    "metric_value": 0.27,
    "threshold": 0.5
@@ -317,7 +317,7 @@
     0.23,
     0.3125
    ],
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "performance",
    "metric_value": 0.27,
    "threshold": 0.5
@@ -341,21 +341,21 @@
   },
   "psi|x1": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.138515381430888,
    "threshold": 0.5
   },
   "psi|x2": {
    "conf_int": null,
-   "drift_status": false,
+   "drift_status": true,
    "metric_type": "drift",
    "metric_value": Infinity,
    "threshold": 0.5
   },
   "psi|x3": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.007636030626443209,
    "threshold": 0.5
@@ -585,21 +585,21 @@
   },
   "wasserstein|x1": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.32401917215125825,
    "threshold": 0.5
   },
   "wasserstein|x2": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.42627584915983563,
    "threshold": 0.5
   },
   "wasserstein|x3": {
    "conf_int": null,
-   "drift_status": true,
+   "drift_status": false,
    "metric_type": "drift",
    "metric_value": 0.056499999999999995,
    "threshold": 0.5

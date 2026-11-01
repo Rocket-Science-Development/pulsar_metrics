@@ -1,5 +1,6 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -9,6 +10,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+from ..metrics.base import MetricResults, MetricsType
 from ..metrics.drift import DriftMetric, DriftTestMetric
 from ..metrics.enums import (  # MetricsType,
     DriftMetricsFuncs,
@@ -17,6 +19,8 @@ from ..metrics.enums import (  # MetricsType,
 )
 from ..metrics.performance import PerformanceMetric
 from ..metrics.statistics import FeatureSummary
+
+logger = logging.getLogger(__name__)
 
 
 class AbstractAnalyzer(ABC):
@@ -122,12 +126,9 @@ class Analyzer(AbstractAnalyzer):
             keyworded variable length of arguments to a function
         """
         for metric_name in metrics_list:
-            try:
-                if metric_name in PerformanceMetricsFuncs._member_names_:
-                    metric = PerformanceMetric(metric_name=metric_name, **kwargs)
-                    self._metrics_list.append(metric)
-            except Exception as e:
-                print(f"Error in add_performance_metrics() in the analysers base: {str(e)}")
+            if metric_name not in PerformanceMetricsFuncs._member_names_:
+                raise error_msg(value=metric_name, message=f"unknown performance metric key {metric_name} given.")
+            self._metrics_list.append(PerformanceMetric(metric_name=metric_name, **kwargs))
 
     def add_drift_metrics(self, metrics_list: list, features_list: list = None):
         """Method to add drift metrics list to the analyzer
@@ -148,21 +149,14 @@ class Analyzer(AbstractAnalyzer):
             )
 
         for metric_name in metrics_list:
+            if metric_name in DriftMetricsFuncs._member_names_:
+                metric_class = DriftMetric
+            elif metric_name in DriftTestMetricsFuncs._member_names_:
+                metric_class = DriftTestMetric
+            else:
+                raise error_msg(value=metric_name, message=f"unknown drift metric key {metric_name} given.")
             for feature in features_list:
-                try:
-                    if metric_name in DriftMetricsFuncs._member_names_:
-                        metric = DriftMetric(metric_name=metric_name, feature_name=feature)
-                        self._metrics_list.append(metric)
-                    elif metric_name in DriftTestMetricsFuncs._member_names_:
-                        metric = DriftTestMetric(metric_name=metric_name, feature_name=feature)
-                        self._metrics_list.append(metric)
-                    else:
-                        raise error_msg(
-                            value=metric_name,
-                            message=f'{"unknown drift metric key {metric_name} given."}',
-                        )
-                except Exception as e:
-                    print(f"Error in add_drift_metrics() in the analysers base: {str(e)}")
+                self._metrics_list.append(metric_class(metric_name=metric_name, feature_name=feature))
 
     def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
         """Method run() in analyzer from the list of metrics
@@ -212,26 +206,48 @@ class Analyzer(AbstractAnalyzer):
                 message=f'{"Wrong model metadata for current dataset."}',
             )
         else:
-            try:
-                self._results = []
-                # Summary statistics. Recommended all features for users (by default) otherwise configurable based on perferences
-                for feature_name in current.columns:
-                    statistics = FeatureSummary(feature_name=feature_name)
+            # A failing metric does not stop the run: it is recorded with its error and no value or status
+            self._results = []
+            # Summary statistics. Recommended all features for users (by default) otherwise configurable based on perferences
+            for feature_name in current.columns:
+                statistics = FeatureSummary(feature_name=feature_name)
+                try:
                     statistics.evaluate(current, reference)
                     self._results += statistics._result
-                for metric in tqdm(self._metrics_list):
-                    kwargs = options.get(metric._name, {})
-                    if isinstance(metric, (DriftMetric, DriftTestMetric)):
-                        metric.evaluate(current=df_current, reference=df_reference, **kwargs)
-                    elif isinstance(metric, PerformanceMetric):
-                        if (metric._y_name in df_current.columns) and (df_current[metric._y_name].isnull().sum() == 0):
-                            metric.evaluate(current=df_current, reference=df_reference, **kwargs)
-                        else:
-                            raise error_msg(
-                                value=None,
-                                message=f'{"Dataset has no ground truth for performance assessment"}',
-                            )
+                except Exception as e:
+                    logger.warning("Summary statistics failed for %s: %s", feature_name, e)
+                    self._results.append(
+                        MetricResults(
+                            metric_type=MetricsType.statistics.value,
+                            metric_name="summary",
+                            feature_name=feature_name,
+                            error=str(e),
+                        )
+                    )
+            for metric in tqdm(self._metrics_list):
+                kwargs = options.get(metric._name, {})
+                try:
+                    if isinstance(metric, PerformanceMetric) and (
+                        metric._y_name not in df_current.columns or df_current[metric._y_name].isnull().any()
+                    ):
+                        raise error_msg(value=None, message="Dataset has no ground truth for performance assessment")
+                    self._results.append(metric.evaluate(current=df_current, reference=df_reference, **kwargs))
+                except Exception as e:
+                    logger.warning("Metric %s failed: %s", metric._name, e)
+                    self._results.append(self._failed_result(metric, e))
 
-                    self._results.append(metric._result)
-            except Exception as e:
-                print(f"Exception in run() in the analyzers class (base): {str(e)}")
+    @staticmethod
+    def _failed_result(metric, error: Exception) -> MetricResults:
+        """Result recorded for a metric that could not be computed"""
+        if isinstance(metric, PerformanceMetric):
+            metric_type = MetricsType.performance.value
+        elif isinstance(metric, (DriftMetric, DriftTestMetric)):
+            metric_type = MetricsType.drift.value
+        else:
+            metric_type = MetricsType.custom.value
+        return MetricResults(
+            metric_type=metric_type,
+            metric_name=metric._name,
+            feature_name=getattr(metric, "_feature_name", None),
+            error=str(error),
+        )

@@ -7,6 +7,7 @@ from pandas.core.dtypes.common import is_numeric_dtype
 from scipy.stats import kurtosis, skew
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+from ..exceptions import MetricEvaluationError
 from . import constant
 from .base import MetricResults
 
@@ -47,14 +48,11 @@ class FeatureSummaryAbstract(ABC):
         )
 
     def _check_feature_name(self, data: pd.DataFrame):
-        try:
-            if self._feature_name not in data.columns:
-                raise error_msg(
-                    value=self._feature_name,
-                    message=f'{"InvalidInput in _check_feature_name() in FeatureSummaryAbstract class(statistics)"}',
-                )
-        except Exception as e:
-            print(f"Exception in evaluate() in FeatureSummaryAbstract class: {str(e)}")
+        if self._feature_name not in data.columns:
+            raise error_msg(
+                value=self._feature_name,
+                message=f'{"InvalidInput in _check_feature_name() in FeatureSummaryAbstract class(statistics)"}',
+            )
 
     def get_result(self):
         return self._result
@@ -115,6 +113,7 @@ class FeatureSummary(FeatureSummaryAbstract):
                     metric_value=category_top,
                     threshold=threshold,
                 )
+                self._result.append(statistics)
 
             # Adding the count for all types of features
             count = MetricResults(
@@ -125,4 +124,6 @@ class FeatureSummary(FeatureSummaryAbstract):
             )
             self._result.append(count)
         except Exception as e:
-            print(f"Exception in evaluate() in the FeatureSummary class( statistics): {str(e)}")
+            raise MetricEvaluationError(
+                value=self._feature_name, message=f"Cannot compute summary statistics for {self._feature_name}: {e}"
+            ) from e

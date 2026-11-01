@@ -5,7 +5,8 @@ import numpy as np
 import pandas as pd
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
-from ..utils import compare_to_threshold
+from ..exceptions import MetricEvaluationError
+from ..utils import drift_from_threshold
 from . import constant
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import PerformanceMetricsFuncs
@@ -32,12 +33,8 @@ class PerformanceMetric(AbstractMetrics):
 
         self._check_metrics_name(metric_name)
 
-        try:
-            self._y_name = kwargs.get("y_name", "y_true")
-            self._pred_name = kwargs.get("pred_name", "y_pred")
-
-        except Exception as e:
-            print(f"Exception in initializing __init__() in the PerformanceMetric class(performance): {str(e)}")
+        self._y_name = kwargs.get("y_name", "y_true")
+        self._pred_name = kwargs.get("pred_name", "y_pred")
 
     def _check_metrics_name(self, metric_name: str):
         if metric_name not in PerformanceMetricsFuncs._member_names_:
@@ -55,7 +52,7 @@ class PerformanceMetric(AbstractMetrics):
         alpha: float = constant.SIGNIFICANCE_LEVEL,
         seed: int = constant.SEED_SIZE,
         threshold: Union[float, int, list] = None,
-        upper_bound: bool = True,
+        upper_bound: bool = None,
         **kwargs,
     ) -> MetricResults:
         """Method evaluate() to evaluate the metrics performance
@@ -76,6 +73,10 @@ class PerformanceMetric(AbstractMetrics):
             seed value for random number generator
         threshold : Union[list, float, int]
             Threshold values to validate the input value
+        upper_bound : bool, optional
+            True if the threshold is the maximum acceptable value (error metrics), False if it is the minimum
+            (accuracy, precision, recall, f1, auc, aucpr, r2). Inferred from the metric when None.
+            drift_status is True when the value violates the threshold.
         kwargs :
             keyworded variable length of arguments to a function
 
@@ -92,7 +93,9 @@ class PerformanceMetric(AbstractMetrics):
             if bootstrap:
                 conf_int = self._bootstrap(current=current, n_bootstrap=n_bootstrap, alpha=alpha, seed=seed, **kwargs)
 
-            status = compare_to_threshold(value, threshold, upper_bound)
+            if upper_bound is None:
+                upper_bound = self._name not in constant.HIGHER_IS_BETTER_METRICS
+            status = drift_from_threshold(value, threshold, upper_bound)
 
             self._result = MetricResults(
                 metric_name=self._name,
@@ -107,7 +110,7 @@ class PerformanceMetric(AbstractMetrics):
             return self._result
 
         except Exception as e:
-            print(f"Exception in evaluate() in the PerformanceMetric class (performance): {str(e)}")
+            raise MetricEvaluationError(value=self._name, message=f"Cannot evaluate performance metric {self._name}: {e}") from e
 
     def _bootstrap(
         self,
