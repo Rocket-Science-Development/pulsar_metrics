@@ -3,7 +3,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-import numpy as np
 import pandas as pd
 
 # import warnings
@@ -74,14 +73,14 @@ class AbstractAnalyzer(ABC):
         return result
 
     def results_to_pandas(self):
-        result = None
+        results = None
         if self._results is not None:
             results = pd.DataFrame.from_records([self._results[i].dict() for i in range(len(self._results))])
             for key, value in self._metadata.items():
-                if key not in ["name", "description"]:
+                if key not in ["name", "description", "options"]:
                     results[key] = value
 
-        return result
+        return results
 
     def log_results(self):
         pass
@@ -143,10 +142,10 @@ class Analyzer(AbstractAnalyzer):
 
         # TODO: better handling of numeric vs categorical variables
         if features_list is None:
-            input_array = self._data.select_dtypes("number").columns
-            input_comparison_array = ["y_true", "y_pred", "y_pred_proba", "model_id", "model_version"]
-
-            features_list = np.setdiff1d(input_array, input_comparison_array)
+            raise error_msg(
+                value=None,
+                message=f'{"features_list is required: the analyzer holds no data before run()."}',
+            )
 
         for metric_name in metrics_list:
             for feature in features_list:

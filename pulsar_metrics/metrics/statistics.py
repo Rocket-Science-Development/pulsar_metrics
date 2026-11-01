@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Sequence
 
-import constant
+from . import constant
 import numpy as np
 import pandas as pd
 from pandas.core.dtypes.common import is_numeric_dtype

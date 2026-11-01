@@ -1,7 +1,7 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 from typing import Union
 
-import constant
+from . import constant
 import pandas as pd
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg

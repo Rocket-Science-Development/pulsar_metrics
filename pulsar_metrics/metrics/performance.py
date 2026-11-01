@@ -1,7 +1,7 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 from typing import Union
 
-import constant
+from . import constant
 import numpy as np
 import pandas as pd
 
