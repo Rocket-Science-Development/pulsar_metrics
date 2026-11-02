@@ -50,7 +50,7 @@ class FairnessPolicy:
     interval : str, optional
         "auto" (default): score intervals (Wilson combined by Newcombe for differences, MOVER-R for the ratio) for
         groups under `small_group_size` rows on the rate criteria, the bootstrap otherwise; "bootstrap": always the
-        bootstrap (the behaviour before 0.11, anti-conservative for small groups); "score": score intervals for every
+        bootstrap (the behaviour of 0.10 and before, anti-conservative for small groups); "score": score intervals for every
         group on the rate criteria. Equalized odds, calibration and error rate always use the bootstrap.
     small_group_size : int, optional
         Rows under which "auto" uses score intervals (default 200)
@@ -108,7 +108,7 @@ class FairnessAnalyzer:
     max_intersection_depth : int, optional
         Largest number of attributes combined (default 2: pairs). With k attributes there are 2^k - 1 combinations and
         the deeper cells are mostly suppressed (lab FA-01, 5 attributes: 65 to 75 % of the cells, 4 to 11 % of the
-        rows, 30 to 80 times the run time). None combines all of them (the behaviour before 0.11).
+        rows, 30 to 80 times the run time). None combines all of them (the behaviour of 0.10 and before).
     max_cells : int, optional
         Stop adding attribute combinations, with a warning, once this many cells have been evaluated (default None)
     declared_groups : sequence of str, optional

@@ -2,6 +2,64 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] - genai-fairness
+
+Fixes for the limits confirmed by the night lab (report `rapport_nuit.md`, section 2) on `genai` and `fairness`.
+
+### Added
+- `genai.component_test` / `embedding_drift(test="component")`: shift of the mean PCA components (Hotelling with a
+  ridge, or per-component max-t that names the component), exact permutation p-value (TX-02 M6).
+- `genai.novelty_test` / `embedding_drift(test="novelty")`: k-nearest-neighbour novelty score per text, threshold
+  calibrated on a held-out part of the reference, permutation test of the share of novel texts; the novel texts are
+  returned (TX-02 M7: 5 % of foreign texts, synthetic replica 0.8 power at 300 texts against 0.2 for the MMD).
+  The two new results use metric_type "custom" until their names join the drift metric list.
+- `genai.detection_power`: detection rate by share of changed texts (or images) and window size, with the A/A rate:
+  the minimal detectable change per window size (TX-02 M6/M7, IM-02 m5).
+- `mmd_test(bandwidth=...)`: fixed kernel unit instead of the median distance.
+- `genai.model_equality_power`, `genai.RECOMMENDED_CANARY` (48 prompts x 10 answers) and
+  `model_equality(min_answers=...)`, which reports a non-significant result on a small canary as inconclusive; the
+  `method` of a non-significant result below 480 answers says that a quantization change is usually missed (LM-01 M23).
+- `ComplianceMonitor.alerts(trace, min_severity="critical")`: per-run alert of the violated rules by severity, with the
+  rules version; `ComplianceMonitor.run_record(trace)`: `violated_rules`, `critical_violations`, `max_severity`,
+  `rules_version` for the agent_run record; `genai.SEVERITIES` (info, minor, major, critical; unknown severities warn
+  and rank as major) (LI-03 C3).
+- `ComplianceMonitor.evaluate(reference=..., alpha=0.05, absolute_from="critical")`: rules judged against a reference
+  period (one-sided Fisher exact test, Benjamini-Hochberg over the rules); critical rules keep the absolute verdict
+  (LS-01 M26).
+- `FairnessAnalyzer(max_intersection_depth=2, max_cells=None, declared_groups=None)` and `FairnessAnalyzer.coverage()`
+  (share of rows without verdict per feature and criterion, `no_verdict_share`), with a warning above
+  `FairnessPolicy.max_no_verdict_share` (5 %) of rows in suppressed cells (FA-01 M8, m6, m7).
+- `FairnessPolicy(interval="auto", small_group_size=200)`: Wilson score intervals (Newcombe for differences, MOVER-R
+  for the ratio) for small groups on the rate criteria (FA-04 m8); `FairnessPolicy(equivalence_confidence=...)` and
+  `counterfactual_analysis(equivalence_confidence=...)`: TOST for the "within the zone" verdicts (FA-04 m9, m10).
+- Inconclusive verdicts of `FairnessAnalyzer` and `counterfactual_analysis` give in `method` the rows or probe sets
+  needed for an 80 % chance of a verdict (FA-01 m7, FA-04 m9, m10, LB-01 m17).
+- `pulsar_metrics.fairness.planning`: `required_group_size`, `paired_sets_needed`, `flip_sets_needed`,
+  `sequential_decisions_needed`, and the score intervals `wilson`, `newcombe_difference`, `mover_ratio`,
+  `rate_interval`; `fairness.equivalence_verdict`.
+- `FairnessMonitor(baseline=...)`, `FairnessMonitor.fit_baseline(frame)`: change mode, H0 |gap - baseline| <= tolerance
+  (FA-01 M9); `FairnessMonitor.acknowledge(group, rebaseline=None)` re-arms a test after an alarm (`alarms` keeps
+  the history); `BettingTest(center=...)`.
+
+### Changed
+- **Default changed** `FairnessAnalyzer(max_intersection_depth=2)`: intersections stop at pairs of attributes. All
+  combinations (the former behaviour) exploded with 5 attributes (65 to 75 % of the cells suppressed, 30 to 80 times
+  the run time); pass `max_intersection_depth=None` to keep them. Combinations whose cells are all suppressed are
+  skipped with a warning instead of raising.
+- **Default changed** `FairnessPolicy(interval="auto")`: groups under 200 rows get score intervals on the rate criteria;
+  the percentile bootstrap was anti-conservative for them (3 to 5 % one-sided misses instead of 2.5 %).
+  `interval="bootstrap"` restores the former intervals.
+- **Default changed** `FairnessMonitor(reference_pooling=True)`: each group decision is paired with the mean of a
+  disjoint chunk of the batch's reference decisions; the 1:1 pairs dropped about 95 % of the reference decisions of a
+  small group (FA-04 m11: group of 5 %, drop of 0.1, 20,000 decisions, detection 16 % -> 52 %, false alarms 0 to 0.5 %).
+  `reference_pooling=False` restores the 1:1 pairs. The README example now establishes the disparity after 3,138
+  pairs (e-value 22) instead of 3,184 (21).
+- The fairness bootstrap of 0/1 rates draws exact binomial replicates instead of resampling rows in a Python loop
+  (same distribution; 5 attributes x 50,000 rows, all combinations: 188 s -> 5 s). Bootstrap intervals differ in their
+  last digits from 0.10.
+- `mmd_test` evaluates the permutations with one matrix product per block and fits the PCA by eigendecomposition
+  (TX-02 m4: 1000 x 1000 texts, 500 permutations, 11 to 18 s -> 0.7 s); same p-values for the same seed.
+
 ## [0.10.0] - 2026-11-02
 
 ### Added
