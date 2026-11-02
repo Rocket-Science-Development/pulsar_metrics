@@ -9,7 +9,10 @@ from ..exceptions import MetricEvaluationError
 from ..utils import drift_from_threshold
 from . import constant
 from .base import AbstractMetrics, MetricResults, MetricsType
+from .drift import mask_missing, normalize_missing_values
 from .enums import PerformanceMetricsFuncs
+
+NO_GROUND_TRUTH = "Dataset has no ground truth for performance assessment"
 
 
 class PerformanceMetric(AbstractMetrics):
@@ -18,10 +21,13 @@ class PerformanceMetric(AbstractMetrics):
 
         Parameters
         ----------
-        feature_name : str
-            The input feature_name for representing name of feature
+        metric_name : str
+            One of PerformanceMetricsFuncs
         kwargs :
-            keyworded variable length of arguments to a function
+            y_name, pred_name : columns of the ground truth and the prediction (default "y_true", "y_pred")
+            missing_values : sentinel value(s) of y_name and pred_name meaning "no value", turned into NaN
+            min_label_coverage : minimum share of rows with ground truth (default 0.0: any labelled row is enough)
+            min_labelled : minimum number of labelled rows (default 1)
 
         Raises
         ------
@@ -35,6 +41,9 @@ class PerformanceMetric(AbstractMetrics):
 
         self._y_name = kwargs.get("y_name", "y_true")
         self._pred_name = kwargs.get("pred_name", "y_pred")
+        self._missing_values = normalize_missing_values(kwargs.get("missing_values"))
+        self._min_label_coverage = kwargs.get("min_label_coverage", 0.0)
+        self._min_labelled = kwargs.get("min_labelled", 1)
 
     def _check_metrics_name(self, metric_name: str):
         if metric_name not in PerformanceMetricsFuncs._member_names_:
@@ -53,6 +62,8 @@ class PerformanceMetric(AbstractMetrics):
         seed: int = constant.SEED_SIZE,
         threshold: Union[float, int, list] = None,
         upper_bound: bool = None,
+        min_label_coverage: float = None,
+        min_labelled: int = None,
         **kwargs,
     ) -> MetricResults:
         """Method evaluate() to evaluate the metrics performance
@@ -77,6 +88,11 @@ class PerformanceMetric(AbstractMetrics):
             True if the threshold is the maximum acceptable value (error metrics), False if it is the minimum
             (accuracy, precision, recall, f1, auc, aucpr, r2). Inferred from the metric when None.
             drift_status is True when the value violates the threshold.
+        min_label_coverage : float, optional
+            Minimum share of rows with both ground truth and prediction; below it the result carries an `error` and no
+            value or verdict. Defaults to the value given at construction (0.0).
+        min_labelled : int, optional
+            Minimum number of such rows (default from the construction, 1)
         kwargs :
             keyworded variable length of arguments to a function
 
@@ -86,8 +102,38 @@ class PerformanceMetric(AbstractMetrics):
              returns the result of the calculated metric
         """
 
+        min_label_coverage = self._min_label_coverage if min_label_coverage is None else min_label_coverage
+        min_labelled = self._min_labelled if min_labelled is None else min_labelled
         try:
-            self._n_sample = current.shape[0]
+            # Ground truth often arrives late or partly: evaluate on the rows that have it, and say how many they are
+            y_true = mask_missing(current[self._y_name], self._missing_values)
+            y_pred = mask_missing(current[self._pred_name], self._missing_values)
+            labelled = (y_true.notna() & y_pred.notna()).to_numpy()
+            n_rows = int(current.shape[0])
+            n_labelled = int(labelled.sum())
+            coverage = n_labelled / n_rows if n_rows else 0.0
+            coverage_fields = dict(
+                metric_name=self._name,
+                metric_type=MetricsType.performance.value,
+                feature_name="prediction",
+                threshold=threshold,
+                n_labelled=n_labelled,
+                label_coverage=coverage,
+            )
+            if n_labelled == 0:
+                self._result = MetricResults(error=f"{NO_GROUND_TRUTH} (0 labelled rows of {n_rows})", **coverage_fields)
+                return self._result
+            if coverage < min_label_coverage or n_labelled < min_labelled:
+                self._result = MetricResults(
+                    error=(
+                        f"label coverage too low: {n_labelled} labelled rows of {n_rows} ({coverage:.1%}), "
+                        f"minimum {min_label_coverage:.1%} and {min_labelled} rows"
+                    ),
+                    **coverage_fields,
+                )
+                return self._result
+            current = pd.DataFrame({self._y_name: y_true[labelled], self._pred_name: y_pred[labelled]})
+            self._n_sample = n_labelled
             value = PerformanceMetricsFuncs[self._name].value(current[self._y_name], current[self._pred_name], **kwargs)
             conf_int = None
             if bootstrap:
@@ -97,15 +143,7 @@ class PerformanceMetric(AbstractMetrics):
                 upper_bound = self._name not in constant.HIGHER_IS_BETTER_METRICS
             status = drift_from_threshold(value, threshold, upper_bound)
 
-            self._result = MetricResults(
-                metric_name=self._name,
-                metric_type=MetricsType.performance.value,
-                metric_value=value,
-                feature_name="prediction",
-                conf_int=conf_int,
-                drift_status=status,
-                threshold=threshold,
-            )
+            self._result = MetricResults(metric_value=value, conf_int=conf_int, drift_status=status, **coverage_fields)
 
             return self._result
 

@@ -1,10 +1,12 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
 
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from scipy.special import rel_entr
-from scipy.stats import chi2_contingency
+from scipy.stats import chi2_contingency, fisher_exact
 from sklearn.metrics.pairwise import pairwise_kernels
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
@@ -135,6 +137,38 @@ def chi2_test(new: pd.Series, reference: pd.Series, **kwargs):
     """
     counts = get_population_counts(new, reference)
     return chi2_contingency(counts.T.to_numpy(), **kwargs)
+
+
+def missing_rate_test(new, reference):
+    """Fisher exact test of the share of missing values (NaN) between two samples
+
+    Detects a change of the missing rate, e.g. a sensor that starts returning its "no value" sentinel more often. The
+    sentinels should be turned into NaN first (`missing_values=` of DriftTestMetric or Analyzer.add_drift_metrics). For
+    a DataFrame, a row counts as missing when any of its values is.
+
+    Parameters
+    ----------
+    new : pd.Series or pd.DataFrame
+        The input pandas Series of the new population
+    reference : pd.Series or pd.DataFrame
+        The input pandas Series of the reference population
+
+    Returns
+    -------
+    scipy.stats result or SimpleNamespace
+        exposing statistic (odds ratio, NaN when undefined) and pvalue; pvalue is 1.0 when no row, or every row, is
+        missing in both samples
+    """
+
+    def counts(x):
+        missing = x.isna().any(axis=1) if isinstance(x, pd.DataFrame) else x.isna()
+        return int(missing.sum()), int((~missing).sum())
+
+    new_missing, new_present = counts(new)
+    ref_missing, ref_present = counts(reference)
+    if new_missing + ref_missing == 0 or new_present + ref_present == 0:
+        return SimpleNamespace(statistic=float("nan"), pvalue=1.0)
+    return fisher_exact([[new_missing, new_present], [ref_missing, ref_present]])
 
 
 def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False, epsilon: float = 1e-6):

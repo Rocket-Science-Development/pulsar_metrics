@@ -40,6 +40,13 @@ class MetricResults(BaseModel):
     e_value: Optional[float] = None  # sequential tests
     p_value: Optional[float] = None  # when the test gives one (permutation tests)
     suppressed: Optional[bool] = None  # cell below the minimum size: value withheld
+    # Data quality (drift and performance metrics): all optional
+    status: Optional[str] = None  # e.g. "constant_reference": the reference of the feature holds a single value
+    missing_share_current: Optional[float] = None  # share of missing values (NaN or declared sentinels) set aside
+    missing_share_reference: Optional[float] = None
+    n_labelled: Optional[int] = None  # performance: rows with both ground truth and prediction, the rows evaluated
+    label_coverage: Optional[float] = None  # performance: n_labelled / rows of the window
+    reliable: Optional[bool] = None  # threshold from a calibration flagged unreliable (False): provisional verdict
 
     # TODO: validators for model id's, model's version, data_id, and metrics type
     @field_validator("metric_type")
