@@ -2,11 +2,15 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] - calibration-analyzer
+## [0.11.0] - 2026-11-02
 
-Limits confirmed by the night lab of 2 November 2026 (C1, C2, M1 to M5, m1 to m3, m16, m21).
+Fixes for the limits confirmed by the night lab of 2 November 2026: C1, C2, C3 (metrics side), M1 to M9, M23
+(model equality side), M26, m1 to m11, m16, m17 and m21. Embedding mean-shift and novelty results are drift metrics.
 
 ### Added
+
+**Calibration, analyzer and drift/performance metrics (TS-01, TS-02, TC-01, TC-05, SC-06, LS-01)**
+
 - `AACalibrator`: `fdr_alpha` (0.05), `auto_draws` (True) and `max_draws` (10000). `fit(n_tests=...)` raises the number
   of A/A draws until the empirical p-value floor `1 / (n_draws + 1)` is half of `fdr_alpha / m`; `n_draws_used` gives
   the number used. With `auto_draws=False`, a warning is emitted instead (C1).
@@ -30,7 +34,46 @@ Limits confirmed by the night lab of 2 November 2026 (C1, C2, M1 to M5, m1 to m3
 - `MetricResults`: `status`, `missing_share_current`, `missing_share_reference`, `n_labelled`, `label_coverage`,
   `reliable` (optional).
 
+**GenAI, compliance and fairness (TX-02, IM-02, LM-01, FA-01, FA-04, LB-01, LI-03, LS-01)**
+
+- `genai.component_test` / `embedding_drift(test="component")`: shift of the mean PCA components (Hotelling with a
+  ridge, or per-component max-t that names the component), exact permutation p-value (TX-02 M6).
+- `genai.novelty_test` / `embedding_drift(test="novelty")`: k-nearest-neighbour novelty score per text, threshold
+  calibrated on a held-out part of the reference, permutation test of the share of novel texts; the novel texts are
+  returned (TX-02 M7: 5 % of foreign texts, synthetic replica 0.8 power at 300 texts against 0.2 for the MMD).
+  The two new results use metric_type "custom" until their names join the drift metric list.
+- `genai.detection_power`: detection rate by share of changed texts (or images) and window size, with the A/A rate:
+  the minimal detectable change per window size (TX-02 M6/M7, IM-02 m5).
+- `mmd_test(bandwidth=...)`: fixed kernel unit instead of the median distance.
+- `genai.model_equality_power`, `genai.RECOMMENDED_CANARY` (48 prompts x 10 answers) and
+  `model_equality(min_answers=...)`, which reports a non-significant result on a small canary as inconclusive; the
+  `method` of a non-significant result below 480 answers says that a quantization change is usually missed (LM-01 M23).
+- `ComplianceMonitor.alerts(trace, min_severity="critical")`: per-run alert of the violated rules by severity, with the
+  rules version; `ComplianceMonitor.run_record(trace)`: `violated_rules`, `critical_violations`, `max_severity`,
+  `rules_version` for the agent_run record; `genai.SEVERITIES` (info, minor, major, critical; unknown severities warn
+  and rank as major) (LI-03 C3).
+- `ComplianceMonitor.evaluate(reference=..., alpha=0.05, absolute_from="critical")`: rules judged against a reference
+  period (one-sided Fisher exact test, Benjamini-Hochberg over the rules); critical rules keep the absolute verdict
+  (LS-01 M26).
+- `FairnessAnalyzer(max_intersection_depth=2, max_cells=None, declared_groups=None)` and `FairnessAnalyzer.coverage()`
+  (share of rows without verdict per feature and criterion, `no_verdict_share`), with a warning above
+  `FairnessPolicy.max_no_verdict_share` (5 %) of rows in suppressed cells (FA-01 M8, m6, m7).
+- `FairnessPolicy(interval="auto", small_group_size=200)`: Wilson score intervals (Newcombe for differences, MOVER
+  on the log scale for the ratio) for small groups on the rate criteria (FA-04 m8); `FairnessPolicy(equivalence_confidence=...)` and
+  `counterfactual_analysis(equivalence_confidence=...)`: TOST for the "within the zone" verdicts (FA-04 m9, m10).
+- Inconclusive verdicts of `FairnessAnalyzer` and `counterfactual_analysis` give in `method` the rows or probe sets
+  needed for an 80 % chance of a verdict (FA-01 m7, FA-04 m9, m10, LB-01 m17).
+- `pulsar_metrics.fairness.planning`: `required_group_size`, `paired_sets_needed`, `flip_sets_needed`,
+  `sequential_decisions_needed`, and the score intervals `wilson`, `newcombe_difference`, `mover_ratio`,
+  `rate_interval`; `fairness.equivalence_verdict`.
+- `FairnessMonitor(baseline=...)`, `FairnessMonitor.fit_baseline(frame)`: change mode, H0 |gap - baseline| <= tolerance
+  (FA-01 M9); `FairnessMonitor.acknowledge(group, rebaseline=None)` re-arms a test after an alarm (`alarms` keeps
+  the history); `BettingTest(center=...)`.
+
 ### Changed
+
+**Calibration, analyzer and drift/performance metrics (TS-01, TS-02, TC-01, TC-05, SC-06, LS-01)**
+
 - **Performance metrics are evaluated on the rows with ground truth** instead of failing as soon as one `y_true` is
   missing, and report `n_labelled` and `label_coverage`. Below `min_label_coverage` (default 0.0) the result carries an
   `error`. The old default was the defect: a window with 18 % of labels missing gave no performance at all (C2).
@@ -68,46 +111,8 @@ Limits confirmed by the night lab of 2 November 2026 (C1, C2, M1 to M5, m1 to m3
 - `Analyzer.run`: declared sentinels are also turned into NaN for the summary statistics (M1).
 - Numeric series of different dtypes (int and float) are compared as float by the drift metrics.
 
-## [Unreleased] - genai-fairness
+**GenAI, compliance and fairness (TX-02, IM-02, LM-01, FA-01, FA-04, LB-01, LI-03, LS-01)**
 
-Fixes for the limits confirmed by the night lab (report `rapport_nuit.md`, section 2) on `genai` and `fairness`.
-
-### Added
-- `genai.component_test` / `embedding_drift(test="component")`: shift of the mean PCA components (Hotelling with a
-  ridge, or per-component max-t that names the component), exact permutation p-value (TX-02 M6).
-- `genai.novelty_test` / `embedding_drift(test="novelty")`: k-nearest-neighbour novelty score per text, threshold
-  calibrated on a held-out part of the reference, permutation test of the share of novel texts; the novel texts are
-  returned (TX-02 M7: 5 % of foreign texts, synthetic replica 0.8 power at 300 texts against 0.2 for the MMD).
-  The two new results use metric_type "custom" until their names join the drift metric list.
-- `genai.detection_power`: detection rate by share of changed texts (or images) and window size, with the A/A rate:
-  the minimal detectable change per window size (TX-02 M6/M7, IM-02 m5).
-- `mmd_test(bandwidth=...)`: fixed kernel unit instead of the median distance.
-- `genai.model_equality_power`, `genai.RECOMMENDED_CANARY` (48 prompts x 10 answers) and
-  `model_equality(min_answers=...)`, which reports a non-significant result on a small canary as inconclusive; the
-  `method` of a non-significant result below 480 answers says that a quantization change is usually missed (LM-01 M23).
-- `ComplianceMonitor.alerts(trace, min_severity="critical")`: per-run alert of the violated rules by severity, with the
-  rules version; `ComplianceMonitor.run_record(trace)`: `violated_rules`, `critical_violations`, `max_severity`,
-  `rules_version` for the agent_run record; `genai.SEVERITIES` (info, minor, major, critical; unknown severities warn
-  and rank as major) (LI-03 C3).
-- `ComplianceMonitor.evaluate(reference=..., alpha=0.05, absolute_from="critical")`: rules judged against a reference
-  period (one-sided Fisher exact test, Benjamini-Hochberg over the rules); critical rules keep the absolute verdict
-  (LS-01 M26).
-- `FairnessAnalyzer(max_intersection_depth=2, max_cells=None, declared_groups=None)` and `FairnessAnalyzer.coverage()`
-  (share of rows without verdict per feature and criterion, `no_verdict_share`), with a warning above
-  `FairnessPolicy.max_no_verdict_share` (5 %) of rows in suppressed cells (FA-01 M8, m6, m7).
-- `FairnessPolicy(interval="auto", small_group_size=200)`: Wilson score intervals (Newcombe for differences, MOVER
-  on the log scale for the ratio) for small groups on the rate criteria (FA-04 m8); `FairnessPolicy(equivalence_confidence=...)` and
-  `counterfactual_analysis(equivalence_confidence=...)`: TOST for the "within the zone" verdicts (FA-04 m9, m10).
-- Inconclusive verdicts of `FairnessAnalyzer` and `counterfactual_analysis` give in `method` the rows or probe sets
-  needed for an 80 % chance of a verdict (FA-01 m7, FA-04 m9, m10, LB-01 m17).
-- `pulsar_metrics.fairness.planning`: `required_group_size`, `paired_sets_needed`, `flip_sets_needed`,
-  `sequential_decisions_needed`, and the score intervals `wilson`, `newcombe_difference`, `mover_ratio`,
-  `rate_interval`; `fairness.equivalence_verdict`.
-- `FairnessMonitor(baseline=...)`, `FairnessMonitor.fit_baseline(frame)`: change mode, H0 |gap - baseline| <= tolerance
-  (FA-01 M9); `FairnessMonitor.acknowledge(group, rebaseline=None)` re-arms a test after an alarm (`alarms` keeps
-  the history); `BettingTest(center=...)`.
-
-### Changed
 - **Default changed** `FairnessAnalyzer(max_intersection_depth=2)`: intersections stop at pairs of attributes. All
   combinations (the former behaviour) exploded with 5 attributes (65 to 75 % of the cells suppressed, 30 to 80 times
   the run time); pass `max_intersection_depth=None` to keep them. Combinations whose cells are all suppressed are
@@ -129,7 +134,10 @@ Fixes for the limits confirmed by the night lab (report `rapport_nuit.md`, secti
 - Missing values of a protected attribute (NaN, None) now form a group of their own, `<missing>`, in
   `FairnessAnalyzer`; they used to crash it on pandas 3 (`astype(str)` keeps NaN there).
 
-### Fixed (review of this branch)
+### Fixed
+
+**GenAI, compliance and fairness (TX-02, IM-02, LM-01, FA-01, FA-04, LB-01, LI-03, LS-01)**
+
 - PCA of the embedding tests with fewer texts than components and more dimensions than texts: the numerically null
   directions of the Gram matrix were divided by ~0 (projections up to 1e137, wrong p-values in about half of the
   draws at 12 + 12 texts in 384 dimensions).

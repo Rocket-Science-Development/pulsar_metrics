@@ -416,13 +416,13 @@ def embedding_drift(
 
     test : "mmd" (default; metric_type "drift", metric_name "mmd"), "component" (`component_test`, metric_name
     "embedding_mean_shift") or "novelty" (`novelty_test`, metric_name "embedding_novelty", metric_value = share of
-    novel texts). The last two are reported with metric_type "custom" until their names join the drift metric list.
+    novel texts).
     """
     if test == "component":
         r = component_test(reference, current, **kwargs)
         where = f"; largest shift on component {r.component}" if r.component is not None else ""
         return MetricResults(
-            metric_type="custom",
+            metric_type="drift",
             metric_name="embedding_mean_shift",
             feature_name=feature_name,
             metric_value=r.statistic,
@@ -437,7 +437,7 @@ def embedding_drift(
     if test == "novelty":
         r = novelty_test(reference, current, **kwargs)
         return MetricResults(
-            metric_type="custom",
+            metric_type="drift",
             metric_name="embedding_novelty",
             feature_name=feature_name,
             metric_value=r.novel_share,
