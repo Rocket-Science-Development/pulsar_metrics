@@ -1,5 +1,8 @@
 """Multiple-testing correction: dozens of features are tested in every window."""
 
+import warnings
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 
@@ -43,13 +46,26 @@ def benjamini_hochberg(pvalues, alpha: float = 0.05) -> tuple[np.ndarray, np.nda
     return rejected, adjusted
 
 
-def fdr_correct(results: pd.DataFrame, pvalue_column: str, alpha: float = 0.05) -> pd.DataFrame:
+def fdr_correct(
+    results: pd.DataFrame, pvalue_column: str, alpha: float = 0.05, pvalue_floor: Optional[float] = None
+) -> pd.DataFrame:
     """Add `p_adjusted` and `drift_fdr` columns to a results table, using Benjamini-Hochberg on `pvalue_column`
 
     Typical use: `pvalue_column="p_empirical"` filled by AACalibrator.empirical_pvalues(), which gives one p-value per
     (metric, feature) whatever the kind of statistic.
+
+    pvalue_floor : smallest p-value the column can hold (AACalibrator.pvalue_floor for empirical p-values). A warning
+    is emitted when it is above alpha / m: a drift on a single feature can then never be rejected.
     """
     out = results.copy()
+    m = int(out[pvalue_column].notna().sum())
+    if pvalue_floor is not None and m and pvalue_floor > alpha / m:
+        warnings.warn(
+            f"p-values cannot go below {pvalue_floor:.5f}, above the BH threshold {alpha}/{m} = {alpha / m:.5f}: "
+            "a drift on a single feature cannot be rejected",
+            UserWarning,
+            stacklevel=2,
+        )
     rejected, adjusted = benjamini_hochberg(out[pvalue_column].to_numpy(dtype=float), alpha)
     out["p_adjusted"] = adjusted
     out["drift_fdr"] = np.where(np.isnan(adjusted), None, rejected)

@@ -284,6 +284,27 @@
    "metric_value": 529172956216033.44,
    "threshold": 0.5
   },
+  "missing_rate|x1": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 1.0,
+   "threshold": 0.05
+  },
+  "missing_rate|x2": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 1.0,
+   "threshold": 0.05
+  },
+  "missing_rate|x3": {
+   "conf_int": null,
+   "drift_status": false,
+   "metric_type": "drift",
+   "metric_value": 1.0,
+   "threshold": 0.05
+  },
   "mmd|x1": {
    "conf_int": null,
    "drift_status": false,

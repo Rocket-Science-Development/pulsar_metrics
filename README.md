@@ -122,6 +122,10 @@ Every metric produces a `MetricResults` (pydantic model):
 | `drift_status` | **`True` = drift or degradation detected, `False` = none, `None` = no verdict** |
 | `conf_int` | Bootstrap confidence interval (performance metrics with `bootstrap=True`) |
 | `error` | Message when the metric could not be computed (`metric_value` and `drift_status` are then `None`) |
+| `status` | Data-quality status of a drift result: `constant_reference` when the reference of the feature holds a single value |
+| `missing_share_current`, `missing_share_reference` | Drift metrics: share of missing values (NaN or declared sentinels) set aside |
+| `n_labelled`, `label_coverage` | Performance metrics: rows evaluated (ground truth and prediction present) and their share of the window |
+| `reliable` | `False` when the threshold comes from a calibration flagged unreliable (`AACalibrator.options()`): provisional verdict |
 
 The verdict follows **one convention for every metric**:
 
@@ -131,6 +135,8 @@ The verdict follows **one convention for every metric**:
 - **Performance metrics**: the threshold is a **minimum** for accuracy, precision, recall, f1, auc, aucpr and r2, and a
   **maximum** for error metrics (log_loss, brier, mse, mae, mape). Pass `upper_bound` to override.
 - **No threshold**: the value is computed and `drift_status` is `None`.
+- **NaN statistic**: no verdict. `drift_status` is `None` and `error` says so (comparing NaN with a threshold used to
+  give `True` for distances and `False` for tests).
 
 Errors are explicit: a metric that cannot be computed (missing column, incompatible types, failing function) raises
 `pulsar_metrics.exceptions.MetricEvaluationError` with the original cause. `Analyzer.run()` does **not** stop on such a
@@ -149,7 +155,8 @@ the remaining metrics.
 | `mmd` | [Maximum Mean Discrepancy](https://jmlr.org/papers/v13/gretton12a.html) | Linear kernel by default (`kernel=` accepts scikit-learn pairwise kernels) |
 
 `psi` and `kl` add a small smoothing (`epsilon=1e-6`, then renormalisation) to every proportion, so that a category or
-bin absent from one sample gives a large but finite value instead of `inf`.
+bin absent from one sample gives a large but finite value instead of `inf`. `psi`, `kl` and `chi2` bin numeric
+features as float whatever their dtype, so that an integer column and the same column as float give the same value.
 
 ### Data drift: statistical tests (`DriftTestMetric`, verdict on `alpha`)
 
@@ -162,8 +169,26 @@ bin absent from one sample gives a large but finite value instead of `inf`.
 | `ks_2samp` | [Kolmogorov-Smirnov](https://en.wikipedia.org/wiki/Kolmogorov%E2%80%93Smirnov_test) | Any change of distribution |
 | `CvM` | [Cramér-von Mises](https://en.wikipedia.org/wiki/Cram%C3%A9r%E2%80%93von_Mises_criterion) | Any change of distribution |
 | `chi2` | [Chi-squared test of homogeneity](https://en.wikipedia.org/wiki/Chi-squared_test) | Change of the frequencies of a **categorical** feature (2 x k contingency table, `scipy.stats.chi2_contingency`); samples may have different sizes; numeric features are binned |
+| `missing_rate` | [Fisher exact test](https://en.wikipedia.org/wiki/Fisher%27s_exact_test) on the 2 x 2 table missing / present | Change of the **share of missing values** (NaN and declared sentinels), e.g. a sensor that fails more often |
 
 The statistical tests other than `chi2` apply to numeric features. For a categorical feature use `chi2`, `psi` or `kl`.
+
+### Missing values and sentinels
+
+Drift metrics and tests take two parameters, at construction or through `Analyzer.add_drift_metrics`:
+
+- `missing_values`: value(s) meaning "no value", such as the `-200` of a sensor, turned into NaN before any
+  computation. Without it, the sentinel is analysed as a measurement: in the lab, sentinels (15 to 31 % of a week's
+  values) raised 7 drift alerts over 5 weeks that disappeared once the data were cleaned.
+- `nan_policy`: `"omit"` (default) sets missing values aside and records their share in `missing_share_current` and
+  `missing_share_reference`; `"propagate"` passes them to the function; `"raise"` refuses them. Before, a single NaN
+  made the statistic NaN and the verdict arbitrary (1080 of 1080 lab tests without a usable verdict), and `psi` and
+  `kl` raised.
+
+Setting missing values aside hides a change of their rate: add `missing_rate` to watch it.
+
+A feature **constant in the reference** (imputed, or not yet in use) gets `status="constant_reference"`: any variation
+then counts as a drift. The change is real, but read it as "the feature started varying" rather than as a shift.
 
 ### Performance (`PerformanceMetric`)
 
@@ -174,6 +199,14 @@ The statistical tests other than `chi2` apply to numeric features. For a categor
 | `log_loss`, `brier` | Probabilistic losses | maximum | probabilities |
 | `mse`, `mae`, `mape` | Regression errors (`mape` = mean absolute percentage error) | maximum | values |
 | `r2` | Coefficient of determination | minimum | values |
+
+Ground truth often arrives late or only for part of the traffic. Performance metrics are computed on the rows that
+have both ground truth and prediction, and report `n_labelled` and `label_coverage`. `min_label_coverage` (default 0.0)
+and `min_labelled` (default 1), at construction or in `evaluate()`, set the minimum below which the result carries an
+`error` instead of a value. `missing_values` declares a sentinel of `y_true` / `y_pred`. Before, a single missing label
+made the whole window fail (in the lab, 45 of 45 weeks with 18 % of labels missing). A result computed on part of the
+window says so in `method`, and with the default minimum of 0 a UserWarning is emitted below 50 % coverage: set
+`min_label_coverage` to refuse such windows.
 
 ### Summary statistics (`FeatureSummary`)
 
@@ -213,17 +246,17 @@ Extra keyword arguments are passed to the underlying function, e.g. `kernel="rbf
 
 | Column | Use |
 |---|---|
-| `model_id`, `model_version` | Rows are filtered on the analyzer's `model_id` and `model_version` |
+| `model_id`, `model_version` | Rows are filtered on the analyzer's `model_id` and `model_version`, compared as text (a float column of integral values also without its ".0"): a reference read back from a CSV file (`"1.0"` became the float `1.0`) is accepted, while `"1.10"` and `"1.1"` stay distinct. When a filter leaves no row, the error says how many rows each filter kept |
 | `pred_timestamp` | Prediction time (dates or ISO strings, mixed precisions accepted); gives `period_start` / `period_end` |
 | features | Columns named in `features_list` |
-| `y_true`, `y_pred` (or names given with `y_name` / `pred_name`) | Performance metrics. Rows without ground truth make the metric fail with an explicit error |
+| `y_true`, `y_pred` (or names given with `y_name` / `pred_name`) | Performance metrics, evaluated on the rows with ground truth (`n_labelled`, `label_coverage`). A missing `y_true` column makes the metric fail with an explicit error |
 
 **Methods**
 
 | Method | Description |
 |---|---|
-| `add_drift_metrics(metrics_list, features_list)` | Adds every metric for every feature; unknown names raise an error |
-| `add_performance_metrics(metrics_list, **kwargs)` | Adds performance metrics; `y_name` / `pred_name` select the columns |
+| `add_drift_metrics(metrics_list, features_list, missing_values=None, nan_policy="omit")` | Adds every metric for every feature; unknown names raise an error. `missing_values` is one value or list for every feature, or a dict `{feature: value or list}`; declared sentinels also become NaN in the summary statistics |
+| `add_performance_metrics(metrics_list, **kwargs)` | Adds performance metrics; `y_name` / `pred_name` select the columns, `missing_values` declares their sentinel, `min_label_coverage` / `min_labelled` the minimum ground truth |
 | `run(current, reference, options={})` | Computes summary statistics and all metrics. `options` maps a **metric name** to its keyword arguments (`threshold`, `alpha`, `upper_bound`, `bootstrap`...); they apply to every feature for that metric |
 | `get_result()` | List of `MetricResults` |
 | `results_to_pandas()` | DataFrame of results plus model metadata (`model_id`, `model_version`, `period_start`, `period_end`, `eval_timestamp`) |
@@ -250,7 +283,7 @@ from pulsar_metrics.multiple_testing import fdr_correct
 monitor = Analyzer(name="calibrated", model_id="credit_model", model_version="1.0")
 monitor.add_drift_metrics(metrics_list=["ks_2samp", "wasserstein"], features_list=["income"])
 
-# reference sorted by time, holding at least 10 production windows; window_size = size of the production windows
+# reference sorted by time, holding at least 10 production windows (30 for stable thresholds); window_size = their size
 long_reference = window(6000, 0.0, "2025-12-01")
 calibrator = AACalibrator(window_size=300, n_draws=200, quantile=0.95).fit(long_reference, monitor._metrics_list)
 print(calibrator.options())  # {"ks_2samp|income": {"alpha": ...}, "wasserstein|income": {"threshold": ...}}
@@ -262,14 +295,62 @@ print(fdr_correct(drift, "p_empirical", alpha=0.05)[["metric_name", "feature_nam
 ```
 
 - `window_size` must match the production windows: the null distribution depends strongly on the sample size.
-- The reference must hold **at least 10 windows** (a warning is emitted otherwise). With 3 windows of 300 in a
-  1,000-row reference, the A/A draws overlap and the calibrated `alpha` of `ks_2samp` came out at 0.34 on independent
-  data; with 10 windows or more it is back to about 0.05.
+- The reference must hold **at least 10 windows**: `fit()` refuses a shorter one unless `allow_short=True` (with 3
+  windows of 300 in a 1,000-row reference, the calibrated `alpha` of `ks_2samp` came out at 0.34 on independent data).
+  Contiguous draws need 4 windows even then: with about 2, every draw compares nearly the same two windows (in the lab,
+  1 distinct value over 30 draws and a calibrated `alpha` of 0.79).
+- Thresholds are **flagged `reliable=False`** below `reliable_windows` windows (default 30), and for a constant
+  reference or a degenerate null. `options()` passes the flag to the drift results (`reliable` column), to mark their
+  verdicts as provisional; `options(include_reliability=False)` leaves it out.
 - `contiguous=True` (default) draws contiguous windows from a time-sorted reference, keeping the temporal dependence
   of real traffic; random rows (`contiguous=False`) would hide it and under-estimate false alarms.
 - `options` keys `"metric|feature"` take precedence over per-metric keys in `Analyzer.run()`.
 - `false_alarm_rate(metric, feature)` reports how often the nominal p < 0.05 rule fires on A/A draws: a direct measure
   of how misleading it would be on this traffic.
+- `summary()` lists, per (metric, feature), the threshold and its interval (`threshold_interval()`), the status
+  (`ok`, `constant_reference`, `degenerate_null`, `error`), the reliability and the p-value floor.
+- A (metric, feature) that cannot be calibrated (e.g. a text column for `wasserstein`) is recorded in `errors` with a
+  warning; the others are calibrated. The metrics' `missing_values` and `nan_policy` apply to the A/A draws.
+
+**Number of draws and Benjamini-Hochberg.** An empirical p-value cannot go below `1 / (n_draws + 1)`, while
+Benjamini-Hochberg needs `alpha / m` to reject one test out of `m`. With 200 draws (floor 0.005), a drift seen by three
+tests of one feature could not pass the correction beyond about 30 tests per window: in the lab, detection fell from
+100 % at 30 tests to 40 % at 33 and 0 % at 60, and only 8 of 100 models of 20 features with one drifted feature were
+flagged. `fit()` therefore raises the number of draws until the floor is half of `fdr_alpha / m` (`fdr_alpha=0.05`,
+`m` = `n_tests` or the number of metrics calibrated; `auto_draws=True`, capped by `max_draws=10000`): 1,599 draws for
+40 tests (`n_draws_used`); an increase above 5 times `n_draws` is logged as a warning with its estimated cost. With
+`auto_draws=False`, a warning is emitted instead. `empirical_pvalues()` and
+`fdr_correct(..., pvalue_floor=calibrator.pvalue_floor)` warn when the floor is still above `alpha / m`.
+
+**Reusing a calibration.** The calibration dominates the cost of an analysis (88 % of 4.9 s per model in the lab), and
+the cost grows with the number of draws. The null distribution of a (metric, feature) depends only on the reference
+values of the feature and on the draw settings, so it does not need to be computed again for every window:
+
+```python
+from pulsar_metrics.calibration import CalibrationCache
+
+cache = CalibrationCache("calibration_cache")  # .npy files; CalibrationCache() keeps them in memory
+calibrator = AACalibrator(window_size=300).fit(long_reference, monitor._metrics_list, cache=cache)
+calibrator.save("credit_model_v1.json")  # or keep the whole calibration
+calibrator = AACalibrator.load("credit_model_v1.json")
+```
+
+Cache entries are keyed by the metric and its missing-value settings, a hash of the feature's reference values (in
+order), `window_size`, the number of draws, `contiguous` and `seed`: two models that share a reference feature share
+its entry, and a changed reference never reuses a stale one. The quantile is not in the key: the threshold is
+recomputed from the stored values. With a `seed` that is not an integer, nothing is cached.
+
+### Known limits of the calibration
+
+- **Thresholds of short references vary.** On independent data with 10 windows, the calibrated `alpha` of `ks_2samp`
+  ranged from 0.001 to 0.292 over 400 references (p10 0.020, p90 0.150, mean 0.080, nominal 0.05): about 45 disjoint
+  window pairs feed the draws. The window-level false alarm rate after BH stayed at 0 %. Use 30 windows or more, read
+  `threshold_interval()`, or set `shrink_draws` (e.g. 45) to mix that many pseudo-draws of the nominal alpha into the
+  calibrated alphas. Shrinking gives back part of the protection against dependence, and distances are not shrunk.
+- **Cost of the draws.** The number of draws grows with the number of tests (1,599 for 40). On numeric features the
+  statistic runs on numpy arrays, but each scipy test still costs a fraction of a millisecond: cache the calibration.
+- **Calibration is per reference.** A static reference flags lasting changes (seasons, growth) as drift, which is
+  correct; choosing and refreshing the reference is up to the user.
 
 ## Confirming drift over successive windows
 
