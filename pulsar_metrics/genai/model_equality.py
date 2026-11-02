@@ -6,15 +6,25 @@ time and later. Following Gao et al. (ICLR 2025, "Model equality testing: which 
 answers are compared with an MMD whose kernel only compares answers to the same prompt, by the share of positions
 where their tokens agree (Hamming kernel); the p-value comes from permuting the reference / current labels within
 each prompt.
+
+The power depends on how close the two models are. Another model or a new system prompt is detected with the default
+canary set; a change of quantization is not: in the night lab (LM-01), llama3.2 3B q4_K_M against q8_0 was detected in
+20 % of runs at 12 prompts x 5 answers (60 answers), 40 % at 24 x 5, 60 % at 48 x 5 and 100 % at 48 x 10 (480 answers;
+5 runs per cell, so the last figure has a 95 % lower bound near 0.5). `model_equality_power` measures it on a pilot
+of the change you want to catch (e.g. two quantizations served locally) before choosing the canary size.
 """
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
+from scipy import stats
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..metrics.base import MetricResults
+
+# Canary size needed to detect a change of quantization (night lab LM-01): 48 prompts x 10 answers
+RECOMMENDED_CANARY = {"prompts": 48, "answers_per_prompt": 10, "answers": 480}
 
 
 def _tokens(text: str) -> list:
@@ -89,20 +99,94 @@ def model_equality_test(
     )
 
 
-def model_equality(reference, current, model: str = "endpoint", alpha: float = 0.05, **kwargs) -> MetricResults:
-    """Model equality test as a MetricResults (metric_type "drift", metric_name "model_equality")"""
+def model_equality_power(
+    reference: Dict[str, List[str]],
+    current: Dict[str, List[str]],
+    prompts: Sequence[int] = (12, 24, 48),
+    answers: Sequence[int] = (5, 10),
+    alpha: float = 0.05,
+    reps: int = 50,
+    seed: Optional[int] = 0,
+    **kwargs,
+) -> list:
+    """Detection rate of `model_equality_test` by canary size, on a pilot where the change is known to exist
+
+    reference and current are a pilot canary run of the two models to tell apart (e.g. the q8_0 and q4_K_M
+    quantizations of the same model, served locally), with at least max(prompts) prompts and max(answers) answers per
+    prompt on each side. Each rep draws that many prompts and answers per prompt without replacement and runs the
+    test (kwargs: tokenize, length, n_permutations). Returns one dict per (prompts, answers): detection rate with its
+    Wilson 95 % interval. Answers drawn from one generated batch are correlated: generate the pilot in several batches.
+    Run it also on two pilot runs of the *same* model to check the false alarm rate.
+    """
+    shared = [p for p in reference if p in current]
+    rng = np.random.default_rng(seed)
+    kwargs.setdefault("n_permutations", 200)
+    out = []
+    for n_prompts in prompts:
+        for n_answers in answers:
+            usable = [p for p in shared if len(reference[p]) >= n_answers and len(current[p]) >= n_answers]
+            if len(usable) < n_prompts:
+                raise error_msg(
+                    value=n_prompts, message=f"the pilot has {len(usable)} prompts with {n_answers} answers on each side"
+                )
+            hits = 0
+            for _ in range(reps):
+                chosen = rng.choice(len(usable), n_prompts, replace=False)
+                ref, cur = {}, {}
+                for i in chosen:
+                    p = usable[i]
+                    ref[p] = [reference[p][j] for j in rng.choice(len(reference[p]), n_answers, replace=False)]
+                    cur[p] = [current[p][j] for j in rng.choice(len(current[p]), n_answers, replace=False)]
+                result = model_equality_test(ref, cur, seed=int(rng.integers(1 << 31)), **kwargs)
+                hits += int(result.p_value < alpha)
+            ci = stats.binomtest(hits, reps).proportion_ci(method="wilson")
+            out.append(
+                {
+                    "prompts": n_prompts,
+                    "answers_per_prompt": n_answers,
+                    "answers": n_prompts * n_answers,
+                    "power": hits / reps,
+                    "ci_low": float(ci.low),
+                    "ci_high": float(ci.high),
+                    "reps": reps,
+                }
+            )
+    return out
+
+
+def model_equality(
+    reference, current, model: str = "endpoint", alpha: float = 0.05, min_answers: Optional[int] = None, **kwargs
+) -> MetricResults:
+    """Model equality test as a MetricResults (metric_type "drift", metric_name "model_equality")
+
+    min_answers : int, optional
+        Current answers below which a non-significant result is reported as inconclusive (drift_status None, with
+        the reason in `error`) instead of "no change" (False). Default None keeps False; 480 (RECOMMENDED_CANARY)
+        is the size at which the lab detected a change of quantization. A significant result is always True.
+    """
     result = model_equality_test(reference, current, **kwargs)
+    significant = result.p_value < alpha
+    status, error, note = significant, None, ""
+    if not significant and result.answers_current < RECOMMENDED_CANARY["answers"]:
+        note = (
+            f"; below {RECOMMENDED_CANARY['prompts']} prompts x {RECOMMENDED_CANARY['answers_per_prompt']} answers a "
+            "change of quantization is usually missed (see model_equality_power)"
+        )
+    if not significant and min_answers is not None and result.answers_current < min_answers:
+        status = None
+        error = f"inconclusive: {result.answers_current} current answers, at least {min_answers} needed to rule out a change"
     return MetricResults(
         metric_type="drift",
         metric_name="model_equality",
         feature_name=model,
         metric_value=result.statistic,
         threshold=alpha,
-        drift_status=result.p_value < alpha,
+        drift_status=status,
+        error=error,
         n=result.answers_current,
         method=f"MMD with a Hamming kernel within prompts (Gao et al., ICLR 2025); {result.prompts} canary prompts, "
         f"{result.answers_reference} reference and {result.answers_current} current answers; permutation p-value "
-        f"{result.p_value:.4f}",
+        f"{result.p_value:.4f}{note}",
         test_type="fixed",
         p_value=result.p_value,
     )
