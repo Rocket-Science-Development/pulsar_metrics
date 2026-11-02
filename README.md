@@ -155,7 +155,8 @@ the remaining metrics.
 | `mmd` | [Maximum Mean Discrepancy](https://jmlr.org/papers/v13/gretton12a.html) | Linear kernel by default (`kernel=` accepts scikit-learn pairwise kernels) |
 
 `psi` and `kl` add a small smoothing (`epsilon=1e-6`, then renormalisation) to every proportion, so that a category or
-bin absent from one sample gives a large but finite value instead of `inf`.
+bin absent from one sample gives a large but finite value instead of `inf`. `psi`, `kl` and `chi2` bin numeric
+features as float whatever their dtype, so that an integer column and the same column as float give the same value.
 
 ### Data drift: statistical tests (`DriftTestMetric`, verdict on `alpha`)
 
@@ -203,7 +204,9 @@ Ground truth often arrives late or only for part of the traffic. Performance met
 have both ground truth and prediction, and report `n_labelled` and `label_coverage`. `min_label_coverage` (default 0.0)
 and `min_labelled` (default 1), at construction or in `evaluate()`, set the minimum below which the result carries an
 `error` instead of a value. `missing_values` declares a sentinel of `y_true` / `y_pred`. Before, a single missing label
-made the whole window fail (in the lab, 45 of 45 weeks with 18 % of labels missing).
+made the whole window fail (in the lab, 45 of 45 weeks with 18 % of labels missing). A result computed on part of the
+window says so in `method`, and with the default minimum of 0 a UserWarning is emitted below 50 % coverage: set
+`min_label_coverage` to refuse such windows.
 
 ### Summary statistics (`FeatureSummary`)
 
@@ -243,7 +246,7 @@ Extra keyword arguments are passed to the underlying function, e.g. `kernel="rbf
 
 | Column | Use |
 |---|---|
-| `model_id`, `model_version` | Rows are filtered on the analyzer's `model_id` and `model_version`, compared as text and, for numbers, numerically: a reference read back from a CSV file (`"1.0"` became the float `1.0`) is accepted. When a filter leaves no row, the error says how many rows each filter kept |
+| `model_id`, `model_version` | Rows are filtered on the analyzer's `model_id` and `model_version`, compared as text (a float column of integral values also without its ".0"): a reference read back from a CSV file (`"1.0"` became the float `1.0`) is accepted, while `"1.10"` and `"1.1"` stay distinct. When a filter leaves no row, the error says how many rows each filter kept |
 | `pred_timestamp` | Prediction time (dates or ISO strings, mixed precisions accepted); gives `period_start` / `period_end` |
 | features | Columns named in `features_list` |
 | `y_true`, `y_pred` (or names given with `y_name` / `pred_name`) | Performance metrics, evaluated on the rows with ground truth (`n_labelled`, `label_coverage`). A missing `y_true` column makes the metric fail with an explicit error |
@@ -315,7 +318,8 @@ tests of one feature could not pass the correction beyond about 30 tests per win
 100 % at 30 tests to 40 % at 33 and 0 % at 60, and only 8 of 100 models of 20 features with one drifted feature were
 flagged. `fit()` therefore raises the number of draws until the floor is half of `fdr_alpha / m` (`fdr_alpha=0.05`,
 `m` = `n_tests` or the number of metrics calibrated; `auto_draws=True`, capped by `max_draws=10000`): 1,599 draws for
-40 tests (`n_draws_used`). With `auto_draws=False`, a warning is emitted instead. `empirical_pvalues()` and
+40 tests (`n_draws_used`); an increase above 5 times `n_draws` is logged as a warning with its estimated cost. With
+`auto_draws=False`, a warning is emitted instead. `empirical_pvalues()` and
 `fdr_correct(..., pvalue_floor=calibrator.pvalue_floor)` warn when the floor is still above `alpha / m`.
 
 **Reusing a calibration.** The calibration dominates the cost of an analysis (88 % of 4.9 s per model in the lab), and

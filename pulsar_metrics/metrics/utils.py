@@ -4,12 +4,23 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_bool_dtype, is_numeric_dtype
 from scipy.special import rel_entr
 from scipy.stats import chi2_contingency, fisher_exact
 from sklearn.metrics.pairwise import pairwise_kernels
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+
+
+def _as_float(series: pd.Series) -> pd.Series:
+    """Numeric data are binned as float whatever their dtype (booleans are left as they are)
+
+    pd.cut labels the bins of integer data differently from those of float data and merges neighbouring bins: on a
+    0-4 integer feature, values 0 and 1 fell in one bin as int64 and in two as float64. Binning as float makes PSI, KL
+    and chi2 independent of the dtype, e.g. of a column that becomes float in some windows only (masked sentinel), and
+    keeps them equal to the A/A calibration, which runs on float arrays.
+    """
+    return series if is_bool_dtype(series) else series.astype(float)
 
 
 def get_population_percentages(new: pd.Series, reference: pd.Series, binned: bool = False):
@@ -46,6 +57,7 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
         )
     else:
         if is_numeric_dtype(new):
+            new, reference = _as_float(new), _as_float(reference)
             bins = np.histogram_bin_edges(np.concatenate([reference, new]), bins="sturges")
             reference = pd.cut(reference, bins, include_lowest=True)
             new = pd.cut(new, bins, include_lowest=True)
@@ -80,6 +92,7 @@ def get_population_counts(new: pd.Series, reference: pd.Series) -> pd.DataFrame:
             message=f'{"New and reference series should be numeric or object and should have the same type"}',
         )
     if is_numeric_dtype(new):
+        new, reference = _as_float(new), _as_float(reference)
         bins = np.histogram_bin_edges(np.concatenate([reference, new]), bins="sturges")
         reference = pd.cut(reference, bins, include_lowest=True)
         new = pd.cut(new, bins, include_lowest=True)

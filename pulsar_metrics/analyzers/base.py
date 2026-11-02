@@ -32,15 +32,17 @@ def _matches(column: pd.Series, expected) -> pd.Series:
     """Rows whose model_id / model_version equals the expected value, compared as text
 
     A round trip through a CSV file or a store turns "1.0" into the float 1.0 and "1" into the integer 1: text
-    comparison keeps them, and numeric values are also compared numerically ("1" matches 1.0).
+    comparison keeps both. A float column holding integral values (integers turned float by a missing value) is also
+    compared without its ".0" ("1" matches 1.0). Nothing else is compared numerically, so that distinct versions such
+    as "1.10" and "1.1", or "007" and "7", are never merged.
     """
-    matched = column.astype(str) == str(expected)
-    try:
-        number = float(expected)
-    except (TypeError, ValueError):
-        return matched
-    numeric = pd.to_numeric(column, errors="coerce")
-    return matched | (numeric == number)
+    expected = str(expected)
+    matched = column.astype(str) == expected
+    if pd.api.types.is_float_dtype(column):
+        integral = column.notna() & (column % 1 == 0)
+        as_integer = column.where(integral).astype("Int64").astype(str)
+        matched = matched | (integral & (as_integer == expected))
+    return matched
 
 
 class AbstractAnalyzer(ABC):

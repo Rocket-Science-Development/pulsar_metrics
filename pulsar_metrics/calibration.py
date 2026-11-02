@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 MIN_WINDOWS = 10  # below, fit() refuses unless allow_short=True
 MIN_CONTIGUOUS_WINDOWS = 4  # below, contiguous A/A draws overlap so much that the null is degenerate, even with allow_short
 RELIABLE_WINDOWS = 30  # below, thresholds vary a lot between references (lab: KS alpha 0.02 to 0.15, p10-p90, at 10)
+LARGE_INCREASE = 5  # an automatic increase of the draws beyond this factor is logged as a warning, with its cost
+SECONDS_PER_EVALUATION = 0.0005  # order of magnitude of one scipy test on a window of a few hundred rows
 FLOOR_MARGIN = 2  # the p-value floor 1/(n_draws+1) is kept at least this many times below the BH threshold alpha/m
 
 STATUS_OK = "ok"
@@ -284,7 +286,7 @@ class AACalibrator:
             return None
         return math.ceil(FLOOR_MARGIN * n_tests / self.fdr_alpha) - 1
 
-    def _resolve_draws(self, n_tests: int) -> int:
+    def _resolve_draws(self, n_tests: int, n_specs: int) -> int:
         required = self._required_draws(n_tests)
         if required is None or required <= self.n_draws:
             return self.n_draws
@@ -307,7 +309,20 @@ class AACalibrator:
                 UserWarning,
                 stacklevel=3,
             )
-        logger.info("A/A draws raised from %d to %d for %d tests at FDR %s", self.n_draws, used, n_tests, self.fdr_alpha)
+        level = logging.WARNING if used > LARGE_INCREASE * self.n_draws else logging.INFO
+        logger.log(
+            level,
+            "A/A draws raised from %d to %d (x%.0f) for %d tests at FDR %s: about %d evaluations, roughly %.0f s at "
+            "%.1f ms each; reuse the null distributions with CalibrationCache or save() / load()",
+            self.n_draws,
+            used,
+            used / self.n_draws,
+            n_tests,
+            self.fdr_alpha,
+            used * n_specs,
+            used * n_specs * SECONDS_PER_EVALUATION,
+            SECONDS_PER_EVALUATION * 1000,
+        )
         return used
 
     def _draw_positions(self, n: int, n_draws: int, rng: np.random.Generator) -> list:
@@ -397,7 +412,7 @@ class AACalibrator:
             raise error_msg(value=None, message="no drift metric to calibrate")
         n = len(reference)
         n_windows = self._check_reference(n)
-        n_draws = self._resolve_draws(n_tests or len(specs))
+        n_draws = self._resolve_draws(n_tests or len(specs), len(specs))
         self.n_draws_used = n_draws
         whole_windows = int(n_windows)
         n_effective = max(1, min(n_draws, whole_windows * (whole_windows - 1) // 2))

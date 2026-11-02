@@ -46,8 +46,25 @@ Limits confirmed by the night lab of 2 November 2026 (C1, C2, M1 to M5, m1 to m3
   values differ slightly from the previous version for the same seed.
 - A/A draws on numeric features run the statistic on numpy arrays (same values; the calibration is no slower despite
   the new missing-value handling).
-- `Analyzer.run` compares `model_id` / `model_version` as text, and numerically for numbers, so that a reference read
-  back from a CSV file (`"1.0"` read as `1.0`) is accepted; the error says how many rows each filter kept (m16).
+- `Analyzer.run` compares `model_id` / `model_version` as text, and a float column holding integral values also without
+  its ".0", so that a reference read back from a CSV file (`"1.0"` read as `1.0`, `"1"` read as `1.0` next to a
+  missing value) is accepted. Nothing else is compared numerically: `"1.10"` and `"1.1"`, or `"007"` and `7`, stay
+  distinct versions. The error says how many rows each filter kept (m16).
+- **`psi`, `kl` and `chi2` bin numeric data as float whatever their dtype.** `pd.cut` labelled the bins of integer data
+  differently and merged neighbouring bins (values 0 and 1 of a 0-4 feature fell in one bin as int64, in two as
+  float64), so the value depended on the dtype: a column that became float in some windows only (masked sentinel) was
+  binned differently from its reference, and the A/A calibration (float arrays) differed from production (psi
+  threshold 0.0988 vs 0.0859, chi2 alpha 0.0478 vs 0.0367 on a 0-4 integer feature, i.e. 7 % A/A false alarms
+  instead of 5 %). **Values change for integer features**; float features are unchanged (the reference file of the
+  characterization tests still matches).
+- Performance metrics evaluated on part of the window say so in `method` ("labelled rows only: n of N (coverage x %)").
+  With `min_label_coverage=0` (default), a UserWarning is emitted below 50 % coverage. The default stays 0: any
+  positive default would silently withhold the performance of windows that the old code refused outright, while the
+  coverage is now reported in every result and the warning flags the thin cases; set `min_label_coverage` to refuse
+  them (C2).
+- An automatic increase of the A/A draws above 5 times `n_draws` is logged as a WARNING (logger
+  `pulsar_metrics.calibration`) with the number of evaluations, an estimated cost and a pointer to `CalibrationCache`;
+  smaller increases stay at INFO (C1).
 - `Analyzer.run`: declared sentinels are also turned into NaN for the summary statistics (M1).
 - Numeric series of different dtypes (int and float) are compared as float by the drift metrics.
 

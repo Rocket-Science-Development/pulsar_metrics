@@ -1,4 +1,5 @@
 #  Author:   Adel Benlagra  <abenlagra@rocketscience.one>
+import warnings
 from typing import Union
 
 import numpy as np
@@ -13,6 +14,7 @@ from .drift import mask_missing, normalize_missing_values
 from .enums import PerformanceMetricsFuncs
 
 NO_GROUND_TRUTH = "Dataset has no ground truth for performance assessment"
+LOW_COVERAGE = 0.5  # below, with no minimum set, a warning says the verdict rests on few labelled rows
 
 
 class PerformanceMetric(AbstractMetrics):
@@ -132,6 +134,16 @@ class PerformanceMetric(AbstractMetrics):
                     **coverage_fields,
                 )
                 return self._result
+            if n_labelled < n_rows:
+                coverage_fields["method"] = f"labelled rows only: {n_labelled} of {n_rows} (coverage {coverage:.1%})"
+                if min_label_coverage == 0 and coverage < LOW_COVERAGE:
+                    warnings.warn(
+                        f"{self._name} is evaluated on {n_labelled} labelled rows of {n_rows} ({coverage:.1%}) and "
+                        "min_label_coverage is 0: the verdict rests on few rows. Set min_label_coverage to refuse such "
+                        "windows",
+                        UserWarning,
+                        stacklevel=2,
+                    )
             current = pd.DataFrame({self._y_name: y_true[labelled], self._pred_name: y_pred[labelled]})
             self._n_sample = n_labelled
             value = PerformanceMetricsFuncs[self._name].value(current[self._y_name], current[self._pred_name], **kwargs)

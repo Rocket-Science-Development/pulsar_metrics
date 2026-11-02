@@ -292,3 +292,67 @@ def test_m21_cache_key_changes_with_the_draw_settings(tmp_path):
         AACalibrator(window_size=200, allow_short=True).fit(reference, [DriftTestMetric("ks_2samp", "f0")], cache=cache)
         AACalibrator(window_size=100, seed=1).fit(reference, [DriftTestMetric("ks_2samp", "f0")], cache=cache)
     assert cache.hits == 0 and len(cache) == 3
+
+
+# ---------------------------------------------------------------- review: binning independent of the dtype
+def test_binned_metrics_do_not_depend_on_the_integer_or_float_dtype():
+    rng = np.random.default_rng(20)
+    new, ref = frame(x=rng.integers(0, 5, 200)), frame(x=rng.integers(0, 5, 200))
+    for cls, name in ((DriftMetric, "psi"), (DriftMetric, "kl"), (DriftTestMetric, "chi2")):
+        as_int = cls(name, "x").evaluate(new, ref).metric_value
+        as_float = cls(name, "x").evaluate(new.astype(float), ref.astype(float)).metric_value
+        assert as_int == pytest.approx(as_float, rel=1e-12), name
+
+
+def test_calibration_fast_path_matches_production_on_integer_features():
+    reference = frame(x=np.random.default_rng(0).integers(0, 5, 6000))
+    for metric in (DriftMetric("psi", "x"), DriftTestMetric("chi2", "x")):
+        cal = AACalibrator(window_size=200, n_draws=60, fdr_alpha=None).fit(reference, [metric])
+        draws = cal._draw_positions(len(reference), cal.n_draws_used, np.random.default_rng(0))
+        production = [metric.evaluate(reference.iloc[a], reference.iloc[b]).metric_value for a, b in draws]
+        np.testing.assert_allclose(cal.nulls[(metric._name, "x")].values, production, rtol=1e-12)
+
+
+# ---------------------------------------------------------------- review: distinct versions are not merged
+@pytest.mark.parametrize(
+    "column, expected, matches",
+    [
+        (pd.Series([1.0, 2.0]), "1.0", [True, False]),
+        (pd.Series([1.0, np.nan]), "1", [True, False]),
+        (pd.Series([1, 2]), "1", [True, False]),
+        (pd.Series([1.1]), "1.10", [False]),
+        (pd.Series([7]), "007", [False]),
+        (pd.Series(["1.10", "1.1"]), "1.1", [False, True]),
+    ],
+)
+def test_model_version_matching_does_not_merge_distinct_versions(column, expected, matches):
+    from pulsar_metrics.analyzers.base import _matches
+
+    assert list(_matches(column, expected)) == matches
+
+
+# ---------------------------------------------------------------- review: low label coverage with no minimum
+def test_low_label_coverage_without_minimum_warns_and_is_recorded():
+    y_true = np.full(1000, np.nan)
+    y_true[:10] = 1.0
+    current = frame(y_true=y_true, y_pred=np.ones(1000))
+    with pytest.warns(UserWarning, match="min_label_coverage is 0"):
+        result = PerformanceMetric("accuracy").evaluate(current=current)
+    assert result.metric_value == 1.0 and "coverage 1.0%" in result.method
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        assert PerformanceMetric("accuracy", min_label_coverage=0.001).evaluate(current=current).method
+
+
+# ---------------------------------------------------------------- review: large automatic increase of the draws
+def test_large_increase_of_the_draws_is_logged_as_a_warning(caplog):
+    reference = window(2000, 21, n_features=10)
+    specs = [DriftMetric("wasserstein", f"f{i}") for i in range(10)] + [DriftTestMetric("ttest", f"f{i}") for i in range(10)]
+    with quiet(), caplog.at_level("INFO", logger="pulsar_metrics.calibration"):
+        AACalibrator(window_size=100, n_draws=100).fit(reference, specs, n_tests=60)
+    record = [r for r in caplog.records if "A/A draws raised" in r.getMessage()][0]
+    assert record.levelname == "WARNING" and "CalibrationCache" in record.getMessage()
+    caplog.clear()
+    with quiet(), caplog.at_level("INFO", logger="pulsar_metrics.calibration"):
+        AACalibrator(window_size=100, n_draws=100).fit(reference, specs[:4])
+    assert [r.levelname for r in caplog.records if "A/A draws raised" in r.getMessage()] == ["INFO"]
