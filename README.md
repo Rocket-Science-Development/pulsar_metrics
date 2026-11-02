@@ -476,10 +476,30 @@ interval lies entirely outside the acceptable zone**.
   choice belongs to the user (and to the impact assessment), not to the tool.
 - **Verdict** (`drift_status`): `True` = disparity established (interval outside the zone), `False` = within the zone,
   `None` = inconclusive (the interval straddles a bound, typically a small group).
-- **Intervals**: stratified bootstrap (each group resampled within itself); with several groups, a **simultaneous**
-  max-t band so that the confidence level holds for all groups at once.
+- **Intervals**: stratified bootstrap (each group resampled within itself; exact binomial replicates for 0/1
+  decisions, vectorized); with several groups, a **simultaneous** max-t band so that the confidence level holds for
+  all groups at once. Groups under `small_group_size` (200) rows get **score intervals** on the rate criteria
+  (`interval="auto"`: Wilson combined by Newcombe for differences, MOVER on the log scale for the ratio), which
+  keep their level
+  where the percentile bootstrap does not; `interval="bootstrap"` restores the former behaviour.
 - **Small cells are suppressed** (`min_group_size`, default 30): no value and no count are published for them.
-- **Intersections**: `intersections=True` also evaluates every combination of attributes (`sex=F|region=North`).
+  `coverage()` reports, per feature and criterion, the share of rows in suppressed or inconclusive groups
+  (`no_verdict_share`), and a warning is raised when more than `max_no_verdict_share` (5 %) of the rows are in
+  suppressed cells.
+- **Intersections**: `intersections=True` also evaluates combinations of attributes (`sex=F|region=North`), up to
+  `max_intersection_depth` attributes (default 2; `None` for all of them, `max_cells` to cap the number of cells).
+  Combinations without any publishable cell are skipped with a warning.
+- **Inconclusive verdicts say how much data would settle them**: `method` ends with the number of rows of the group
+  needed for an 80 % chance of a verdict at the observed rates (`required_group_size` in
+  `pulsar_metrics.fairness`).
+- **Equivalence (TOST)**: the default "within the zone" verdict is a TOST at 2.5 % per side;
+  `equivalence_confidence=0.90` gives the usual 5 % per side, while a disparity is still established at
+  `confidence`.
+- **Pre-declared cells**: `declared_groups=["sex=F", ...]` gives verdicts only to the declared cells, under a
+  narrower simultaneous band; the other cells are reported as exploratory (`drift_status` None).
+- **Missing attribute values** (NaN, None) form a group of their own, `<missing>` (e.g. `sex=<missing>`), judged
+  and suppressed like any other: rows whose attribute is unknown are often the ones a report must not drop
+  silently. Recode them beforehand to exclude them.
 - **Protected attributes do not need to travel with the predictions**: pass them separately with a pseudonymous id;
   the join happens in memory and only group-level results come out.
 
@@ -508,15 +528,40 @@ print(report[["feature_name", "group", "reference_group", "n", "metric_value", "
 
 ```
    feature_name                    group          reference_group    n  metric_value  ci_low  ci_high  drift_status
-       language              language=fr              language=en 2023         0.701   0.648    0.750          True
-         region             region=South             region=North 1999         1.011   0.933    1.087         False
-language|region language=fr|region=South language=fr|region=North 1007         1.026   0.883    1.169         False
-language|region language=en|region=South language=fr|region=North  992         1.442   1.257    1.628          True
-language|region language=en|region=North language=fr|region=North  985         1.446   1.263    1.629          True
+       language              language=fr              language=en 2023         0.701   0.649    0.753          True
+         region             region=South             region=North 1999         1.011   0.944    1.096         False
+language|region language=fr|region=South language=fr|region=North 1007         1.026   0.880    1.173         False
+language|region language=en|region=South language=fr|region=North  992         1.442   1.257    1.627          True
+language|region language=en|region=North language=fr|region=North  985         1.446   1.271    1.622          True
 ```
 
 Validated against [Fairlearn](https://fairlearn.org) on ACSIncome (Folktables, Massachusetts 2018, 12,035 test
 rows): identical disparate impact ratio, equal opportunity and equalized odds differences for sex (difference 0).
+
+**Planning the data a verdict needs** (`pulsar_metrics.fairness`): `required_group_size` (rows of a group),
+`paired_sets_needed` and `flip_sets_needed` (counterfactual probe sets), `sequential_decisions_needed` (horizon of
+`FairnessMonitor`). Each takes the expected rates and returns the size for a conclusive verdict with probability
+`power` (0.8), or `None` when no size suffices (disparity on a bound of the zone).
+
+```python
+from pulsar_metrics.fairness import required_group_size
+
+print(required_group_size(0.5, 0.5, zone=(-0.1, 0.1), reference_size=2000))  # rows to certify a fair group
+```
+
+```
+299
+```
+
+#### Known limits (night lab, FA-01 and FA-04)
+
+| Limit | Lab figure | What the code does now |
+|---|---|---|
+| Intersections explode with the number of attributes | 5 attributes: 1,146 to 1,750 cells, 65 to 75 % suppressed, 4 to 11 % of the rows without verdict, 30 to 80 times the run time | pairs by default (`max_intersection_depth=2`), `max_cells`, `coverage()` and a warning; exact binomial bootstrap (5 attributes x 50,000 rows, all combinations: 188 s before, 5 s now) |
+| The simultaneous band is wide | 2.2 times the per-group intervals over 609 cells, 176 inconclusive verdicts instead of 81 | `declared_groups`; the trade-off itself is the price of a level that holds for every cell |
+| Small groups get no verdict | groups under 300 rows: 152 of 199 parity results inconclusive | the rows needed are reported; pooling years or regions is left to the user and should be declared in the analysis |
+| The percentile bootstrap is anti-conservative for small groups | one-sided misses 3 to 5 % instead of 2.5 % (30 to 100 rows) | score intervals under 200 rows (simulated: at most 3.3 % per side, about 5 % in total) |
+| Small fair groups cannot be certified | no bias, zone +-0.1: certified 0 / 0 / 5 / 52 / 96 % of the time at 30 / 50 / 100 / 200 / 500 rows | `equivalence_confidence=0.90` (simulated at 100 / 200 rows: 29 / 70 % certified instead of 2 / 52 %); below about 100 rows no method certifies a zone of +-0.1: a Wilson interval at 30 rows is +-0.17 wide |
 
 ### Continuous fairness monitoring (anytime-valid)
 
@@ -530,7 +575,15 @@ disparity was established and its e-value (evidence, ≥ 1 / alpha).
 - Criteria: `demographic_parity` (selection rates) and `equal_opportunity` (true positive rates, needs `y_true`).
 - `tolerance`: absolute difference of rates considered acceptable (default 0.05); the test asks whether the gap
   exceeds it, not whether it is exactly zero.
-- Batches can have any size and any group mix; unpaired observations wait for the next batch.
+- **Level or change**: by default the test asks whether the gap exceeds the tolerance. A gap that was already there
+  when monitoring started alarms at once and stays alarmed, which hides any later degradation. `fit_baseline(frame)`
+  (or `baseline={"fr": -0.13}`) switches to the change mode: H0 |gap - baseline gap| <= tolerance.
+- **Re-arming**: `acknowledge(group, rebaseline=None)` starts a new test for the group once an alarm has been handled
+  (the alarm is kept in `alarms`); each armed period has its own alpha guarantee.
+- **Reference pooling** (`reference_pooling=True`, default): each group decision is paired with the mean of a
+  disjoint share of the batch's reference decisions, so no reference decision is wasted (`False`: the 1:1 pairs of
+  0.10 and before, which dropped about 95 % of the reference decisions for a group of 5 %).
+- Batches can have any size and any group mix; unpaired group observations wait for the next batch.
 
 ```python
 from pulsar_metrics.fairness import FairnessMonitor
@@ -549,7 +602,7 @@ for day in range(30):
 ```
 
 ```
-day 15: disparity established after 3184 pairs, e-value 21
+day 15: disparity established after 3138 pairs, e-value 22
 ```
 
 A bias-injection bench (`benchmarks/fairness_drift.py`, 1,500 simulations per source, tolerance 0.05, alpha 0.05)
@@ -563,7 +616,19 @@ measures the trade-off against a fixed-sample test re-run after every batch:
 | Median delay, synthetic, group 20 %, rate lowered by 0.10 | 10,000 decisions | 6,000 decisions |
 
 The guarantee costs detection delay (typically 1 to 3 times longer), most visibly for small groups and gaps barely
-beyond the tolerance.
+beyond the tolerance. The bench above used the 1:1 pairs.
+
+#### Known limits (night lab, FA-01 and FA-04)
+
+- **Small groups**: a drop of 0.1 on a group of 5 % of the stream (tolerance 0.05, 20,000 decisions) was established
+  in 22 % of the lab's runs with 1:1 pairs. On the same setting, simulated with 200 runs, reference pooling raises it
+  from 16 % to 52 % (median delay 12,000 decisions), and from 85 % to 98 % for a group of 20 %, with 0 to 0.5 % false
+  alarms. `sequential_decisions_needed(gap, tolerance, group_share)` gives the order of magnitude of the horizon
+  (about 15,500 decisions pooled, 29,500 with 1:1 pairs, for the case above).
+- **Level mode on stable gaps**: in the lab, 23 of 23 gaps that were stable but beyond the tolerance alarmed from the
+  first year and never re-armed. Use the change mode and `acknowledge` for them.
+- The baseline of the change mode is a point estimate; the test takes it as given, so choose a tolerance above its
+  uncertainty (`baseline_n` keeps the rows behind each gap).
 
 ### Counterfactual probes of LLM applications and agents
 
@@ -616,15 +681,33 @@ counterfactual_action_rate_difference  name=maghreb  +0.345 [+0.280, +0.415] Tru
 counterfactual_action_rate_ratio       name=maghreb  +4.632 [+3.185, +7.250] True
 ```
 
+`equivalence_confidence=0.90` judges "within the zone" and "no excess flips" with a TOST at 5 % per side (the
+default is 2.5 % per side). Inconclusive results end their `method` with the number of probe sets needed for an
+80 % chance of a verdict at the observed rates (`paired_sets_needed`, `flip_sets_needed`).
+
+#### Known limits (night lab, FA-04 and LB-01)
+
+- **30 probe sets rarely certify anything**: without any bias, the action rate difference was "within the zone"
+  (+-0.1) in 10 % of runs at 30 sets, 79 % at 60 and 97 % at 100. With no discordant set at all, the bound on the
+  difference is the Wilson upper bound of 0 out of 30 sets, 0.11, already beyond the zone. Plan 60 to 100 sets
+  (`paired_sets_needed(0.0, 0.0)` gives 60).
+- **Excess flip rates stay inconclusive at 200 sets** when they sit near the tolerance: 7 (model, group) pairs out
+  of 12 in LB-01, e.g. 0.038 [0.005, 0.077] against a tolerance of 0.05. That is a power limit, not a defect: use
+  `flip_sets_needed` to size the probe. An excess of 0.038 sits 0.012 from the tolerance: about 4,200 probe and
+  placebo sets for an 80 % chance of a verdict (`flip_sets_needed(0.058, 0.02)`); an excess of 0.015 needs about 400.
+
 ### Text drift, model equality and agent compliance
 
 `pulsar_metrics.genai` adds three tests for LLM applications and agents:
 
 | Function | Question | Test |
 |---|---|---|
-| `embedding_drift` / `mmd_test` | Has the **content** of the requests (or answers, or retrieved passages) changed, beyond what lengths and tools show? | MMD between the embeddings of two windows, Gaussian mixture kernel (0.5 to 4 times the median distance), PCA fitted on both windows pooled, permutation p-value |
-| `model_equality` / `model_equality_test` | Is the endpoint still serving the **same model** (not a quantized version, another model, a new system prompt)? | Answers to a fixed canary set, sampled several times; MMD with a Hamming kernel within prompts (Gao et al., ICLR 2025); permutation p-value within prompts |
-| `ComplianceMonitor` | Does every run respect the **behavioural rules** of the agent? | Rules in linear temporal logic on finite traces (LTLf) or Declare templates (`precedence`, `response`, `absence`, `allowed_tools`...), versioned in YAML; per run, the violated rules; per rule, the compliance rate with a Wilson interval |
+| `embedding_drift` / `mmd_test` | Has the **content** of the requests (or answers, or retrieved passages) changed, beyond what lengths and tools show? | MMD between the embeddings of two windows, Gaussian mixture kernel (0.5 to 4 times the median distance, or a fixed `bandwidth`), PCA fitted on both windows pooled, permutation p-value |
+| `component_test` (`embedding_drift(test="component")`) | Has the **mix** of texts moved along a few directions (more positive reviews, more questions of one kind)? | Shift of the mean PCA components: Hotelling statistic with a ridge (`statistic="hotelling"`), or largest Welch t over the components (`"max_t"`, which names the component); permutation p-value |
+| `novelty_test` (`embedding_drift(test="novelty")`) | Has a **small share of texts unlike the reference** appeared (another language, spam, an injection campaign)? | Distance of each text to its k nearest reference texts, threshold from a held-out part of the reference; share of novel texts against the expected share, permutation p-value; indices of the novel texts returned |
+| `detection_power` | Which change can a test see at a given window size? | Simulation on your own embeddings: detection rate by share of changed texts and window size, with the A/A false alarm rate |
+| `model_equality` / `model_equality_test` | Is the endpoint still serving the **same model** (not a quantized version, another model, a new system prompt)? | Answers to a fixed canary set, sampled several times; MMD with a Hamming kernel within prompts (Gao et al., ICLR 2025); permutation p-value within prompts. `model_equality_power` measures the detection rate by canary size on a pilot; `min_answers` turns a non-significant result on a small canary into "inconclusive" |
+| `ComplianceMonitor` | Does every run respect the **behavioural rules** of the agent? | Rules in linear temporal logic on finite traces (LTLf) or Declare templates (`precedence`, `response`, `absence`, `allowed_tools`...), versioned in YAML with a `severity` (info, minor, major, critical); per run, the violated rules (`violations`), the alert of the critical ones (`alerts`) and the fields to store with the run (`run_record`); per rule, the compliance rate with a Wilson interval, in absolute terms or against a reference period |
 
 ```python
 from pulsar_metrics.genai import ComplianceMonitor, load_rules, trace_from
@@ -642,6 +725,35 @@ print(monitor.violations(trace_from("search_programs>create_file>authenticate"))
 
 LTLf operators: `!`, `&`, `|`, `->`, `X` (strong next), `F` (eventually), `G` (always), `U` (until); atoms are event
 names (the tools called, in order, as in the `tool_sequence` field of the agent records).
+
+- **Per-run alerts**: `monitor.alerts(trace)` returns the violated rules of severity `critical` (or
+  `min_severity=...`), most severe first, each with the rules version: one run that creates a file before
+  authentication is an incident by itself. `monitor.run_record(trace)` gives `violated_rules`,
+  `critical_violations`, `max_severity` and `rules_version`, to store with the `agent_run` record.
+- **Against a reference**: `monitor.evaluate(traces, reference=reference_traces)` flags a rule only when it is
+  violated more often than in the reference period (one-sided Fisher exact test, Benjamini-Hochberg over the rules,
+  `p_value` adjusted, `threshold` = reference compliance). Rules of severity `absolute_from` (critical) or above
+  keep the absolute verdict. Without `reference`, a rule violated at a stable rate alerts in every window.
+
+```python
+print([a["rule_id"] for a in monitor.alerts(trace_from("search_programs>create_file>authenticate"))])
+```
+
+```
+['auth-before-file']
+```
+
+#### Known limits (night lab, TX-02, IM-02, LM-01, LI-03 and LS-01)
+
+| Limit | Lab figure | What the code does now |
+|---|---|---|
+| MMD misses a change of mix along one direction | polarity 50 % to 65 % positive: power 0.55 at 300 texts, 0.05 at 100; a 50 % change is needed for 80 % power at 300 | `component_test` and `detection_power`. On a synthetic replica tuned to the lab's MMD power, `max_t` reaches 0.45 to 0.65 against 0.5 for the MMD: **no unsupervised test on these embeddings fixes it**, the shift is near the statistical limit of a few hundred texts. Monitor the predicted class mix of the downstream model (`chi2` on its predictions) or a probe trained for the property; use `detection_power` to publish the minimal detectable change per window size |
+| MMD misses a small share of foreign texts | 5 % of English texts among French reviews: power 0.40 at 300, 0.05 at 100 | `novelty_test`: on the synthetic replica, 0.8 at 300 and 0.5 at 100 (MMD: 0.2 and 0.15), and the foreign texts are named. Still to be confirmed on the lab's embeddings |
+| The encoder and the PCA matter | power by PCA components (none / 8 / 32 / 128): 0.05 / 0.50 / 0.55 / 0.20; nomic-embed-text 0.25 (polarity) and 0.90 (5 % English) | `n_components` (32) and `bandwidth` are exposed; measure with `detection_power` before choosing |
+| Cost of `mmd_test` at the default cap | 1000 x 1000 texts, 500 permutations: 11 to 18 s | vectorized permutations and eigendecomposition PCA: 0.7 s |
+| MMD on pixels needs large image windows | 3 corruptions of 15 need more than 50 images for 80 % power; 7 of 15 missed at 20 images | `detection_power` sizes the window on your own images; an image encoder (embeddings instead of pixels) is the stronger lever and is left to the user |
+| A change of quantization is missed by the default canary | llama3.2 3B q4_K_M vs q8_0: detected 20 % at 12 prompts x 5 answers, 40 % at 24 x 5, 60 % at 48 x 5, 100 % at 48 x 10 (5 runs per cell; the 480 figure has a 95 % lower bound near 0.5) | `RECOMMENDED_CANARY` (48 x 10), `model_equality_power` on a pilot, `min_answers=480` for an explicit "inconclusive"; the default canary size of the probe lives in pulsar-data-collection |
+| Rules violated at a stable rate alert in every window | auth-before-file 9 windows of 10 (6.0 % against 7.2 % in the reference), amount-after-eligibility 10 of 10 (29.7 % against 28.9 %) | `evaluate(reference=...)` |
 
 ## Explanations and their drift
 

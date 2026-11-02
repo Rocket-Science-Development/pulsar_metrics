@@ -7,10 +7,13 @@ authenticate", "absence: delete_file", "allowed tools") or an LTLf formula over 
     !a   a & b   a | b   a -> b   X a (next, strong)   F a (eventually)   G a (always)   a U b (until)
 
 Rules are versioned data (a YAML file), so that the rules applied to a period are known exactly. Each run gets the
-list of the rules it violates; each rule gets a compliance rate over the runs, with a Wilson interval.
+list of the rules it violates (`violations`), and the per-run alert of its severe violations (`alerts`, from each
+rule's `severity`: info, minor, major, critical); each rule gets a compliance rate over the runs, with a Wilson
+interval, judged either in absolute terms or against a reference period (`evaluate(..., reference=...)`).
 """
 
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
@@ -18,6 +21,16 @@ from scipy import stats
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..metrics.base import MetricResults
+from ..multiple_testing import benjamini_hochberg
+
+SEVERITIES = ("info", "minor", "major", "critical")  # increasing
+
+
+def severity_rank(severity: str) -> int:
+    """Position of a severity in SEVERITIES (unknown severities rank as "major")"""
+    severity = str(severity).lower()
+    return SEVERITIES.index(severity) if severity in SEVERITIES else SEVERITIES.index("major")
+
 
 # ----------------------------------------------------------------------------------------------- LTLf formulas
 _TOKEN = re.compile(r"\s*(->|[()!&|]|\w[\w.:-]*)")
@@ -171,6 +184,8 @@ class Rule:
     severity: str = "major"
 
     def __post_init__(self):
+        if str(self.severity).lower() not in SEVERITIES:
+            warnings.warn(f"rule {self.id}: unknown severity {self.severity!r} (known: {SEVERITIES}); ranked as major")
         if self.template == "allowed_tools":
             if not self.tools:
                 raise error_msg(value=self.id, message="allowed_tools needs a list of tools")
@@ -210,7 +225,8 @@ def load_rules(source) -> list:
 
 
 class ComplianceMonitor:
-    """Check agent trajectories against rules; per run: the violated rules; per rule: the compliance rate"""
+    """Check agent trajectories against rules; per run: the violated rules and the alert of the severe ones; per rule:
+    the compliance rate, absolute or against a reference period"""
 
     def __init__(self, rules: Iterable, version: str = "unversioned"):
         self.rules = [r if isinstance(r, Rule) else Rule(**r) for r in rules]
@@ -222,22 +238,104 @@ class ComplianceMonitor:
     def violations(self, trace: Sequence[str]) -> list:
         return [r.id for r in self.rules if not r.check(trace)]
 
+    def alerts(self, trace: Sequence[str], min_severity: str = "critical") -> list:
+        """Per-run alert: the violated rules of severity `min_severity` or above (default: critical), most severe first
+
+        One run violating a critical rule (e.g. a file created before authentication) is an incident in itself; it
+        must not wait for a window's compliance rate. Each alert is a dict: rule_id, severity, description, formula,
+        rules_version. An empty list means no alert."""
+        if str(min_severity).lower() not in SEVERITIES:
+            raise error_msg(value=min_severity, message=f"min_severity must be one of {SEVERITIES}")
+        floor = severity_rank(min_severity)
+        violated = [r for r in self.rules if severity_rank(r.severity) >= floor and not r.check(trace)]
+        violated.sort(key=lambda r: -severity_rank(r.severity))
+        return [
+            {
+                "rule_id": r.id,
+                "severity": str(r.severity).lower(),
+                "description": r.description,
+                "formula": r.formula,
+                "rules_version": self.version,
+            }
+            for r in violated
+        ]
+
+    def run_record(self, trace: Sequence[str]) -> dict:
+        """Fields to store with the run (e.g. in the agent_run record): violated_rules (comma-separated ids),
+        critical_violations (count), max_severity (None when no violation), rules_version"""
+        violated = [r for r in self.rules if not r.check(trace)]
+        worst = max(violated, key=lambda r: severity_rank(r.severity), default=None)
+        return {
+            "violated_rules": ",".join(r.id for r in violated),
+            "critical_violations": sum(severity_rank(r.severity) == SEVERITIES.index("critical") for r in violated),
+            "max_severity": None if worst is None else str(worst.severity).lower(),
+            "rules_version": self.version,
+        }
+
     def score(self, trace: Sequence[str]) -> float:
         """Share of the rules a run complies with"""
         return 1 - len(self.violations(trace)) / len(self.rules) if self.rules else 1.0
 
-    def evaluate(self, traces: Sequence[Sequence[str]], min_compliance: float = 1.0, confidence: float = 0.95) -> list:
-        """One MetricResults per rule (metric_type "agents"); drift_status True when some runs violate it
-        (compliance below `min_compliance`, default: every run must comply)"""
+    def evaluate(
+        self,
+        traces: Sequence[Sequence[str]],
+        min_compliance: float = 1.0,
+        confidence: float = 0.95,
+        reference: Optional[Sequence[Sequence[str]]] = None,
+        alpha: float = 0.05,
+        absolute_from: Optional[str] = "critical",
+    ) -> list:
+        """One MetricResults per rule (metric_type "agents"), compliance rate with a Wilson interval
+
+        Without `reference`: drift_status True when some runs violate the rule (compliance below `min_compliance`,
+        default: every run must comply).
+
+        With `reference` (the trajectories of a reference period): drift_status True when the rule is violated
+        *more often than in the reference* (one-sided Fisher exact test, Benjamini-Hochberg at `alpha` over the rules
+        tested this way), so that a rule violated at a stable rate no longer alerts in every window. Rules of severity
+        `absolute_from` or above (default: critical) keep the absolute verdict; None tests every rule against the
+        reference. `p_value` holds the BH-adjusted p-value of the rules tested against the reference, `threshold`
+        their reference compliance rate.
+        """
         traces = [list(t) for t in traces]
         if not traces:
             raise error_msg(value=None, message="no trajectory to evaluate")
-        out = []
+        if reference is not None:
+            reference = [list(t) for t in reference]
+            if not reference:
+                raise error_msg(value=None, message="the reference holds no trajectory")
+        floor = None if absolute_from is None else severity_rank(absolute_from)
+        n = len(traces)
+        rows = []
         for rule in self.rules:
             ok = sum(rule.check(t) for t in traces)
-            n = len(traces)
+            relative = reference is not None and (floor is None or severity_rank(rule.severity) < floor)
+            p_value, ref_ok = None, None
+            if relative:
+                ref_ok = sum(rule.check(t) for t in reference)
+                table = [[n - ok, ok], [len(reference) - ref_ok, ref_ok]]  # violations first: "greater" = more now
+                p_value = float(stats.fisher_exact(table, alternative="greater").pvalue)
+            rows.append((rule, ok, relative, p_value, ref_ok))
+        tested = [r[3] for r in rows if r[2]]
+        rejected, adjusted = benjamini_hochberg(tested, alpha) if tested else ([], [])
+        verdicts = iter(zip(rejected, adjusted))
+
+        out = []
+        for rule, ok, relative, p_value, ref_ok in rows:
             ci = stats.binomtest(ok, n).proportion_ci(confidence_level=confidence, method="wilson")
             rate = ok / n
+            base = f"{rule.formula} [{rule.severity}; rules {self.version}]; {n - ok} violating runs; Wilson"
+            if relative:
+                drift, p_adj = next(verdicts)
+                ref_rate = ref_ok / len(reference)
+                status, threshold, adjusted_p = bool(drift), ref_rate, float(p_adj)
+                method = (
+                    f"{base}; against the reference compliance {ref_rate:.3f} ({len(reference)} runs): "
+                    f"Fisher one-sided p = {p_value:.3g}, BH-adjusted {p_adj:.3g} over {len(tested)} rules"
+                )
+            else:
+                status, threshold, adjusted_p = rate < min_compliance, min_compliance, None
+                method = base + ("; absolute verdict (severity)" if reference is not None else "")
             out.append(
                 MetricResults(
                     metric_type="agents",
@@ -247,10 +345,11 @@ class ComplianceMonitor:
                     ci_low=float(ci.low),
                     ci_high=float(ci.high),
                     n=n,
-                    threshold=min_compliance,
-                    drift_status=rate < min_compliance,
-                    method=f"{rule.formula} [{rule.severity}; rules {self.version}]; {n - ok} violating runs; Wilson",
+                    threshold=threshold,
+                    drift_status=status,
+                    method=method,
                     test_type="fixed",
+                    p_value=adjusted_p,
                 )
             )
         return out
