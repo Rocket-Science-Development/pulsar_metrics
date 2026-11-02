@@ -5,8 +5,9 @@ the question users ask next: how much data would settle it? The functions here a
 `FairnessAnalyzer`, `counterfactual_analysis` and `FairnessMonitor`, from the rates observed (or expected).
 
 Intervals of rate differences and ratios use Wilson score intervals combined by Newcombe's hybrid method (difference)
-and the MOVER-R method of Donner and Zou (ratio): unlike the percentile bootstrap, they keep their level for groups of
-a few dozen rows (night lab FA-04: the percentile bootstrap missed on one side 3 to 5 % of the time instead of 2.5 %).
+and the MOVER method of Donner and Zou on the log scale (ratio): unlike the percentile bootstrap, they keep their level
+for groups of a few dozen rows (night lab FA-04: the percentile bootstrap missed on one side 3 to 5 % of the time
+instead of 2.5 %).
 """
 
 import math
@@ -47,23 +48,24 @@ def newcombe_difference(p1: float, ci1: tuple, p2: float, ci2: tuple) -> Tuple[f
 
 
 def mover_ratio(p1: float, ci1: tuple, p2: float, ci2: tuple) -> Tuple[float, float]:
-    """Interval of p1 / p2 from the intervals of p1 and p2 (MOVER-R, Donner and Zou 2012); NaN when p2 = 0"""
+    """Interval of p1 / p2 from the Wilson intervals of p1 and p2: MOVER on the log scale (Donner and Zou 2012),
+    log(p1 / p2) = log p1 - log p2 with the bounds of each log rate; NaN when p2 = 0, [0, u1 / l2] when p1 = 0.
+
+    (The direct MOVER-R formula degenerates when the upper bound of p2 exceeds 2 p2, which Wilson intervals do for
+    small rates: it returned a lower bound of 0 for an observed ratio of 10.)"""
     l1, u1 = ci1
     l2, u2 = ci2
     if p2 <= 0:
         return (float("nan"), float("nan"))
-    product = p1 * p2
-    low_den = u2 * (2 * p2 - u2)
-    high_den = l2 * (2 * p2 - l2)
-    if low_den > 0:
-        low = (product - math.sqrt(max(product**2 - l1 * u2 * (2 * p1 - l1) * (2 * p2 - u2), 0.0))) / low_den
-    else:
-        low = 0.0
-    if high_den > 0:
-        high = (product + math.sqrt(max(product**2 - u1 * l2 * (2 * p1 - u1) * (2 * p2 - l2), 0.0))) / high_den
-    else:
-        high = float("inf")
-    return (max(low, 0.0), high)
+    if p1 <= 0:
+        return (0.0, u1 / l2 if l2 > 0 else float("inf"))
+    centre = math.log(p1) - math.log(p2)
+    down1 = math.log(p1) - math.log(l1) if l1 > 0 else float("inf")
+    down2 = math.log(p2) - math.log(l2) if l2 > 0 else float("inf")
+    up1, up2 = math.log(u1) - math.log(p1), math.log(u2) - math.log(p2)
+    low = centre - math.hypot(down1, up2)
+    high = centre + math.hypot(up1, down2)
+    return (math.exp(low) if math.isfinite(low) else 0.0, math.exp(high) if math.isfinite(high) else float("inf"))
 
 
 def rate_interval(

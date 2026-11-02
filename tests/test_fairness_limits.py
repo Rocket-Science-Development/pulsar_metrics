@@ -136,7 +136,7 @@ def test_score_intervals_keep_their_level_for_small_groups():
     ratio = other(
         FairnessAnalyzer(["language"], reference_groups={"language": "fr"}).run(two_groups(50, seed=2)), "disparate_impact_ratio"
     )
-    assert "MOVER-R" in ratio.method and ratio.ci_low < ratio.metric_value < ratio.ci_high
+    assert "MOVER, log scale" in ratio.method and ratio.ci_low < ratio.metric_value < ratio.ci_high
     legacy = other(
         FairnessAnalyzer(["language"], FairnessPolicy(interval="bootstrap"), reference_groups={"language": "fr"}).run(
             two_groups(50, seed=2)
@@ -309,3 +309,48 @@ def test_sequential_horizon_guidance():
     assert sequential_decisions_needed(0.04, 0.05) is None
     with pytest.raises(error_msg):
         sequential_decisions_needed(0.1, group_share=1.0)
+
+
+# ----------------------------------------------------------------------------------------------- review fixes
+def test_ratio_interval_does_not_collapse_for_small_reference_rates():
+    low, high = rate_interval(10, 50, 1, 50, "ratio")  # observed ratio 10
+    assert 1 < low < 10 < high
+    rng = np.random.default_rng(2)
+    missed = 0
+    for a, b in zip(rng.binomial(50, 0.3, 3000), rng.binomial(2000, 0.5, 3000)):
+        low, high = rate_interval(a, 50, b, 2000, "ratio")
+        missed += not (low <= 0.6 <= high)
+    assert missed / 3000 < 0.065
+    assert rate_interval(0, 50, 10, 50, "ratio")[0] == 0.0
+
+
+def test_exploratory_method_names_its_interval():
+    rng = np.random.default_rng(4)
+    frame = pd.DataFrame({"g": rng.choice(list("ABCD"), 4000)})
+    frame["y_pred"] = (rng.random(len(frame)) < 0.5).astype(int)
+    results = FairnessAnalyzer(["g"], reference_groups={"g": "A"}, declared_groups=["g=B"]).run(frame)
+    exploratory = next(r for r in results if r.group == "g=C")
+    assert "{" not in exploratory.method and "bootstrap" in exploratory.method
+
+
+def test_only_fully_suppressed_combinations_are_skipped():
+    from pulsar_metrics.fairness.analyzer import AllCellsSuppressed
+
+    assert issubclass(AllCellsSuppressed, error_msg)
+    frame = five_attributes(2000)
+    analyzer = FairnessAnalyzer(["a", "b"], intersections=True, reference_groups={"a|b": "Z|Z"})
+    with pytest.raises(error_msg, match="reference group"):  # a real error is not hidden behind the skip warning
+        analyzer.run(frame)
+
+
+def test_missing_attribute_values_form_their_own_group():
+    rng = np.random.default_rng(6)
+    frame = pd.DataFrame({"sex": rng.choice(["F", "M"], 3000).astype(object)})
+    frame.loc[:299, "sex"] = np.nan
+    frame.loc[300:309, "sex"] = None
+    frame["region"] = rng.choice(["N", "S"], 3000)
+    frame["y_pred"] = (rng.random(3000) < 0.5).astype(int)
+    results = FairnessAnalyzer(["sex", "region"], intersections=True).run(frame)
+    groups = {r.group for r in results}
+    assert "sex=<missing>" in groups and any(g and g.startswith("sex=<missing>|region=") for g in groups)
+    assert next(r for r in results if r.group == "sex=<missing>").n == 310

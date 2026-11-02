@@ -398,7 +398,8 @@ interval lies entirely outside the acceptable zone**.
 - **Intervals**: stratified bootstrap (each group resampled within itself; exact binomial replicates for 0/1
   decisions, vectorized); with several groups, a **simultaneous** max-t band so that the confidence level holds for
   all groups at once. Groups under `small_group_size` (200) rows get **score intervals** on the rate criteria
-  (`interval="auto"`: Wilson combined by Newcombe for differences, MOVER-R for the ratio), which keep their level
+  (`interval="auto"`: Wilson combined by Newcombe for differences, MOVER on the log scale for the ratio), which
+  keep their level
   where the percentile bootstrap does not; `interval="bootstrap"` restores the former behaviour.
 - **Small cells are suppressed** (`min_group_size`, default 30): no value and no count are published for them.
   `coverage()` reports, per feature and criterion, the share of rows in suppressed or inconclusive groups
@@ -415,6 +416,9 @@ interval lies entirely outside the acceptable zone**.
   `confidence`.
 - **Pre-declared cells**: `declared_groups=["sex=F", ...]` gives verdicts only to the declared cells, under a
   narrower simultaneous band; the other cells are reported as exploratory (`drift_status` None).
+- **Missing attribute values** (NaN, None) form a group of their own, `<missing>` (e.g. `sex=<missing>`), judged
+  and suppressed like any other: rows whose attribute is unknown are often the ones a report must not drop
+  silently. Recode them beforehand to exclude them.
 - **Protected attributes do not need to travel with the predictions**: pass them separately with a pseudonymous id;
   the join happens in memory and only group-level results come out.
 

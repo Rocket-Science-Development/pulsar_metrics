@@ -29,8 +29,8 @@ Fixes for the limits confirmed by the night lab (report `rapport_nuit.md`, secti
 - `FairnessAnalyzer(max_intersection_depth=2, max_cells=None, declared_groups=None)` and `FairnessAnalyzer.coverage()`
   (share of rows without verdict per feature and criterion, `no_verdict_share`), with a warning above
   `FairnessPolicy.max_no_verdict_share` (5 %) of rows in suppressed cells (FA-01 M8, m6, m7).
-- `FairnessPolicy(interval="auto", small_group_size=200)`: Wilson score intervals (Newcombe for differences, MOVER-R
-  for the ratio) for small groups on the rate criteria (FA-04 m8); `FairnessPolicy(equivalence_confidence=...)` and
+- `FairnessPolicy(interval="auto", small_group_size=200)`: Wilson score intervals (Newcombe for differences, MOVER
+  on the log scale for the ratio) for small groups on the rate criteria (FA-04 m8); `FairnessPolicy(equivalence_confidence=...)` and
   `counterfactual_analysis(equivalence_confidence=...)`: TOST for the "within the zone" verdicts (FA-04 m9, m10).
 - Inconclusive verdicts of `FairnessAnalyzer` and `counterfactual_analysis` give in `method` the rows or probe sets
   needed for an 80 % chance of a verdict (FA-01 m7, FA-04 m9, m10, LB-01 m17).
@@ -58,7 +58,20 @@ Fixes for the limits confirmed by the night lab (report `rapport_nuit.md`, secti
   (same distribution; 5 attributes x 50,000 rows, all combinations: 188 s -> 5 s). Bootstrap intervals differ in their
   last digits from 0.10.
 - `mmd_test` evaluates the permutations with one matrix product per block and fits the PCA by eigendecomposition
-  (TX-02 m4: 1000 x 1000 texts, 500 permutations, 11 to 18 s -> 0.7 s); same p-values for the same seed.
+  (TX-02 m4: 1000 x 1000 texts, 500 permutations, 11 to 18 s -> 0.7 s); same p-values for the same seed. The PCA
+  keeps only directions with positive variance, so at most min(n_components, rank) components.
+- Missing values of a protected attribute (NaN, None) now form a group of their own, `<missing>`, in
+  `FairnessAnalyzer`; they used to crash it on pandas 3 (`astype(str)` keeps NaN there).
+
+### Fixed (review of this branch)
+- PCA of the embedding tests with fewer texts than components and more dimensions than texts: the numerically null
+  directions of the Gram matrix were divided by ~0 (projections up to 1e137, wrong p-values in about half of the
+  draws at 12 + 12 texts in 384 dimensions).
+- Ratio score interval: MOVER on the log scale instead of the direct MOVER-R formula, which returned a lower bound of
+  0 when the upper Wilson bound of the reference rate exceeded twice that rate (observed ratio 10: [0, 59], now
+  [1.7, 61]).
+- `FairnessAnalyzer`: only combinations whose cells are all suppressed (`AllCellsSuppressed`) are skipped; other
+  errors propagate. The `method` of exploratory (non-declared) groups names their interval instead of a dict.
 
 ## [0.10.0] - 2026-11-02
 

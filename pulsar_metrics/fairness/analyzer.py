@@ -21,6 +21,11 @@ _RATES = {
     "false_positive_rate_difference": (0, "difference"),  # rate among the rows with y_true == 0
 }
 _INTERVALS = ("auto", "bootstrap", "score")
+MISSING = "<missing>"  # value of a protected attribute that is missing (NaN, None): a group of its own
+
+
+class AllCellsSuppressed(error_msg):
+    """Every group of an attribute combination is below min_group_size"""
 
 
 @dataclass
@@ -48,7 +53,7 @@ class FairnessPolicy:
         hundreds of cells (lab FA-01: 2.2x over 609 cells); declare the cells of interest
         (`FairnessAnalyzer(declared_groups=...)`) to narrow it.
     interval : str, optional
-        "auto" (default): score intervals (Wilson combined by Newcombe for differences, MOVER-R for the ratio) for
+        "auto" (default): score intervals (Wilson combined by Newcombe for differences, MOVER on the log scale for the ratio) for
         groups under `small_group_size` rows on the rate criteria, the bootstrap otherwise; "bootstrap": always the
         bootstrap (the behaviour of 0.10 and before, anti-conservative for small groups); "score": score intervals for every
         group on the rate criteria. Equalized odds, calibration and error rate always use the bootstrap.
@@ -122,6 +127,10 @@ class FairnessAnalyzer:
 
     Protected attributes need not travel with the predictions: pass them to `run(attributes_data=..., on="id")`,
     the join happens in memory and only group-level results are returned.
+
+    Missing attribute values (NaN, None) form a group of their own, labelled "<missing>" (e.g. "sex=<missing>"),
+    judged and suppressed like any other: the rows whose attribute is unknown are often the ones a report must not
+    silently drop. Recode them beforehand to exclude them.
     """
 
     def __init__(
@@ -172,7 +181,7 @@ class FairnessAnalyzer:
                 break
             try:
                 results, n_cells = self._evaluate(data, list(attrs), rng)
-            except error_msg:
+            except AllCellsSuppressed:
                 if len(attrs) == 1:
                     raise
                 warnings.warn(f"every cell of {'|'.join(attrs)} is below min_group_size: combination skipped")
@@ -210,9 +219,14 @@ class FairnessAnalyzer:
 
     def _evaluate(self, data: pd.DataFrame, attrs: list, rng) -> tuple:
         feature = "|".join(attrs)
-        keys = data[attrs[0]].astype(str)
+
+        def column(a):  # missing values form their own group (pandas 3 keeps NaN through astype(str))
+            values = data[a]
+            return values.astype(object).where(values.notna(), MISSING).astype(str)
+
+        keys = column(attrs[0])
         for a in attrs[1:]:  # vectorized concatenation (a row-wise join is slow on large frames)
-            keys = keys + "|" + data[a].astype(str)
+            keys = keys + "|" + column(a)
         labels = {k: "|".join(f"{a}={v}" for a, v in zip(attrs, k.split("|"))) for k in keys.unique()}
         sizes = keys.value_counts()
         kept = sizes[sizes >= self.policy.min_group_size].index.tolist()
@@ -252,7 +266,7 @@ class FairnessAnalyzer:
                 low, high = intervals.get(k, (None, None))
                 if k in exploratory:
                     status = None
-                    how = f"exploratory (not declared), no verdict; {m2}"
+                    how = f"exploratory (not declared), no verdict; {m2[k] if isinstance(m2, dict) else m2}"
                 else:
                     status = equivalence_verdict((low, high), equivalence.get(k, (low, high)), estimates[k], zone)
                     how = method[k] if isinstance(method, dict) else method
@@ -331,7 +345,7 @@ class FairnessAnalyzer:
 
     def _reference(self, feature, attrs, sizes, kept, labels):
         if not kept:
-            raise error_msg(value=feature, message=f"every group of {feature} is below min_group_size")
+            raise AllCellsSuppressed(value=feature, message=f"every group of {feature} is below min_group_size")
         wanted = self.reference_groups.get(feature) or (self.reference_groups.get(attrs[0]) if len(attrs) == 1 else None)
         if wanted is None:
             return sizes[kept].idxmax()
@@ -477,7 +491,7 @@ class FairnessAnalyzer:
                 score_groups.remove(k)
                 continue
             intervals[k], equivalence[k] = main, eq
-            kind = "Newcombe" if _RATES[name][1] == "difference" else "MOVER-R"
+            kind = "Newcombe" if _RATES[name][1] == "difference" else "MOVER, log scale"
             level = f"{1 - alpha / split:.4g}" if simultaneous else f"{self.policy.confidence:.0%}"
             method[k] = f"Wilson score interval ({kind}), {level}" + (
                 f" (Bonferroni over {k_total} groups)" if simultaneous else ""

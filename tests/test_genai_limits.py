@@ -245,3 +245,16 @@ def test_evaluate_against_a_reference_ignores_stable_violation_rates():
     assert {r.feature_name: r.drift_status for r in relative}["auth-before-file"] is False
     with pytest.raises(error_msg):
         monitor.evaluate([["a"]], reference=[])
+
+
+def test_pca_drops_null_directions_when_there_are_fewer_texts_than_components():
+    """Gram-branch PCA divided null eigenvectors by ~0: projections of 1e137 for 12 + 12 texts in 384 dimensions"""
+    from pulsar_metrics.genai.mmd import _project
+
+    for seed in (85, 98, 3):
+        rng = np.random.default_rng(seed)
+        x, y = rng.normal(size=(12, 384)), rng.normal(size=(12, 384))
+        px, py = _project(x, y, 32)
+        assert px.shape[1] <= 23 and np.abs(np.vstack([px, py])).max() < 1e3
+        assert mmd_test(x, y).p_value == pytest.approx(mmd_test(x, y, n_components=None).p_value)
+    assert _project(np.ones((6, 10)), np.ones((6, 10)), 4)[0].shape == (6, 10)  # no variance at all: unprojected

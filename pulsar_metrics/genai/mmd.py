@@ -66,13 +66,18 @@ def _project(reference: np.ndarray, current: np.ndarray, n_components: Optional[
     centred = pooled - mean
     # eigendecomposition of the smaller of the covariance (d x d) and Gram (N x N) matrices: same subspace as the SVD,
     # several times faster (the projection is defined up to the sign of each axis, which no test here depends on)
-    if centred.shape[1] <= centred.shape[0]:
-        values, vectors = np.linalg.eigh(centred.T @ centred)
-        basis = vectors[:, ::-1][:, :n_components]
+    # Only directions with positive variance are kept (numerically null eigenvalues of the Gram matrix would be
+    # divided by ~0), so at most min(n_components, rank) components.
+    gram = centred.shape[1] > centred.shape[0]
+    values, vectors = np.linalg.eigh(centred @ centred.T if gram else centred.T @ centred)
+    values, vectors = values[::-1], vectors[:, ::-1]
+    keep = min(n_components, int(np.sum(values > 1e-10 * max(values[0], 0.0))))
+    if keep == 0:
+        return reference - mean, current - mean
+    if gram:
+        basis = centred.T @ vectors[:, :keep] / np.sqrt(values[:keep])
     else:
-        values, vectors = np.linalg.eigh(centred @ centred.T)
-        top = vectors[:, ::-1][:, :n_components]
-        basis = centred.T @ top / np.sqrt(np.maximum(values[::-1][:n_components], 1e-300))
+        basis = vectors[:, :keep]
     return (reference - mean) @ basis, (current - mean) @ basis
 
 
