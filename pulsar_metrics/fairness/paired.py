@@ -20,7 +20,8 @@ from scipy import stats
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..metrics.base import MetricResults
 from ..multiple_testing import benjamini_hochberg
-from .criteria import verdict
+from .criteria import equivalence_verdict, verdict
+from .planning import flip_sets_needed, paired_sets_needed
 
 
 def _wilson(successes: int, n: int, confidence: float) -> tuple:
@@ -96,6 +97,7 @@ def counterfactual_analysis(
     confidence: float = 0.95,
     n_resamples: int = 2000,
     seed: Optional[int] = 0,
+    equivalence_confidence: Optional[float] = None,
 ) -> list:
     """Analyse the rows of a CounterfactualProbe run
 
@@ -113,7 +115,16 @@ def counterfactual_analysis(
         Acceptable excess of the flip rate over the placebo flip rate (default 0.05)
     rate_zone, ratio_zone : tuple, optional
         Acceptable zones of the action rate difference and ratio (defaults: [-0.1, 0.1] and the 4/5 rule)
+    equivalence_confidence : float, optional
+        Confidence level of the interval used to conclude "within the zone" / "no excess flips" (default:
+        `confidence`, a TOST at 2.5 % per side). 0.90 gives the usual TOST at 5 % per side; a disparity is still
+        established at `confidence`.
+
+    Inconclusive results (drift_status None) say in `method` about how many probe sets would settle them at the
+    observed rates. Small probes rarely conclude "within the zone": in the lab (FA-04, no bias, 2 % of answers
+    flipping at random), the action rate difference was certified in 10 % of runs at 30 sets, 79 % at 60, 97 % at 100.
     """
+    eq_level = equivalence_confidence or confidence
     rows = _usable(rows, outcome)
     probed = rows[rows["control"] == "none"]
     placebo = rows[rows["control"] == "placebo"]
@@ -181,7 +192,19 @@ def counterfactual_analysis(
         )
         if floor is not None:
             low, high = _newcombe(rate, ci, floor[0], floor[1])
+            eq = _newcombe(rate, _wilson(k, n, eq_level), floor[0], _wilson(round(floor[0] * floor[2]), floor[2], eq_level))
             excess = rate - floor[0]
+            status = equivalence_verdict((float(low), float(high)), eq, excess, (-1.0, flip_tolerance))
+            how = f"flip rate minus placebo flip rate (Newcombe); established above {flip_tolerance}"
+            if equivalence_confidence is not None:
+                how += f"; absence judged at {equivalence_confidence:.0%} (TOST)"
+            if status is None:
+                needed = flip_sets_needed(rate, floor[0], flip_tolerance, placebo_sets=floor[2], confidence=eq_level)
+                how += (
+                    f"; inconclusive: about {needed} probe sets for an 80 % chance of a verdict at the observed rates"
+                    if needed
+                    else "; inconclusive at any number of probe sets with this placebo run"
+                )
             out.append(
                 MetricResults(
                     metric_name="counterfactual_excess_flip_rate",
@@ -191,8 +214,8 @@ def counterfactual_analysis(
                     ci_high=float(high),
                     n=n,
                     threshold=flip_tolerance,
-                    drift_status=verdict(float(low), float(high), excess, (-1.0, flip_tolerance)),
-                    method=f"flip rate minus placebo flip rate (Newcombe); established above {flip_tolerance}",
+                    drift_status=status,
+                    method=how,
                     test_type="fixed",
                     **common,
                 )
@@ -211,13 +234,27 @@ def counterfactual_analysis(
         for (v, group, n, ref, alt, b, c, p_value), p_adj in zip(action_tests, adjusted):
             mcnemar = f"McNemar exact: {b} vs {c} discordant sets, p = {p_value:.3g}, BH-adjusted {p_adj:.3g}"
             difference = float(alt.mean() - ref.mean())
-            if b + c == 0:
-                # no discordant set: the bootstrap would give [0, 0]; bound the difference by the share of discordant sets
-                bound = _wilson(0, n, confidence)[1]
-                low, high, how = -bound, bound, "Wilson bound on the share of discordant sets (none observed)"
-            else:
-                low, high, how = _bootstrap((ref, alt), lambda r, a: a.mean() - r.mean(), confidence, n_resamples, seed)
-                how += " bootstrap"
+
+            def difference_interval(level):
+                if b + c == 0:
+                    # no discordant set: the bootstrap would give [0, 0]; bound the difference by the share of discordant sets
+                    bound = _wilson(0, n, level)[1]
+                    return -bound, bound, "Wilson bound on the share of discordant sets (none observed)"
+                low, high, how = _bootstrap((ref, alt), lambda r, a: a.mean() - r.mean(), level, n_resamples, seed)
+                return low, high, how + " bootstrap"
+
+            low, high, how = difference_interval(confidence)
+            eq = (low, high) if eq_level == confidence else difference_interval(eq_level)[:2]
+            status = equivalence_verdict((low, high), eq, difference, rate_zone)
+            if equivalence_confidence is not None:
+                how += f"; 'within the zone' judged at {equivalence_confidence:.0%} (TOST)"
+            if status is None:
+                needed = paired_sets_needed(difference, max((b + c) / n, abs(difference)), rate_zone, eq_level)
+                how += (
+                    f"; inconclusive: about {needed} probe sets for an 80 % chance of a verdict at the observed rates"
+                    if needed
+                    else "; inconclusive at any number of probe sets (the difference sits on a bound)"
+                )
             out.append(
                 MetricResults(
                     metric_name="counterfactual_action_rate_difference",
@@ -227,7 +264,7 @@ def counterfactual_analysis(
                     ci_high=high,
                     n=n,
                     threshold=list(rate_zone),
-                    drift_status=verdict(low, high, difference, rate_zone),
+                    drift_status=status,
                     method=f"rate of {label!s} in the group minus in the reference group, paired by set; {how}; " + mcnemar,
                     test_type="fixed",
                     **common,

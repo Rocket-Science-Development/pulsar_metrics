@@ -138,3 +138,12 @@ def verdict(ci_low: Optional[float], ci_high: Optional[float], value: float, acc
     if lo >= low and hi <= high:
         return False
     return None
+
+
+def equivalence_verdict(main: tuple, equivalence: tuple, value: float, acceptable: tuple) -> Optional[bool]:
+    """Verdict from two intervals: True when the `main` interval is outside the zone (disparity established), False
+    when the `equivalence` interval is inside it (TOST at the equivalence level), None otherwise. With the same
+    interval twice, it is `verdict`."""
+    if verdict(main[0], main[1], value, acceptable) is True:
+        return True
+    return False if verdict(equivalence[0], equivalence[1], value, acceptable) is False else None
