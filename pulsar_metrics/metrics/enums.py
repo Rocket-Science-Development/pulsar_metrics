@@ -26,7 +26,13 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from .utils import chi2_test, kl_divergence, max_mean_discrepency, population_stability_index
+from .utils import (
+    chi2_test,
+    kl_divergence,
+    max_mean_discrepency,
+    missing_rate_test,
+    population_stability_index,
+)
 
 
 class MetricsType(Enum):
@@ -56,6 +62,7 @@ class DriftTestMetricsFuncs(Enum):
     ks_2samp = member(partial(ks_2samp))
     CvM = member(partial(cramervonmises_2samp))
     chi2 = member(partial(chi2_test))
+    missing_rate = member(partial(missing_rate_test))
 
 
 class PerformanceMetricsFuncs(Enum):

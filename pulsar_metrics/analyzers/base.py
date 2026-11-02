@@ -11,16 +11,38 @@ from tqdm import tqdm
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..metrics.base import MetricResults, MetricsType
-from ..metrics.drift import DriftMetric, DriftTestMetric
+from ..metrics.drift import (
+    DriftMetric,
+    DriftTestMetric,
+    mask_missing,
+    normalize_missing_values,
+)
 from ..metrics.enums import (  # MetricsType,
     DriftMetricsFuncs,
     DriftTestMetricsFuncs,
     PerformanceMetricsFuncs,
 )
-from ..metrics.performance import PerformanceMetric
+from ..metrics.performance import NO_GROUND_TRUTH, PerformanceMetric
 from ..metrics.statistics import FeatureSummary
 
 logger = logging.getLogger(__name__)
+
+
+def _matches(column: pd.Series, expected) -> pd.Series:
+    """Rows whose model_id / model_version equals the expected value, compared as text
+
+    A round trip through a CSV file or a store turns "1.0" into the float 1.0 and "1" into the integer 1: text
+    comparison keeps both. A float column holding integral values (integers turned float by a missing value) is also
+    compared without its ".0" ("1" matches 1.0). Nothing else is compared numerically, so that distinct versions such
+    as "1.10" and "1.1", or "007" and "7", are never merged.
+    """
+    expected = str(expected)
+    matched = column.astype(str) == expected
+    if pd.api.types.is_float_dtype(column):
+        integral = column.notna() & (column % 1 == 0)
+        as_integer = column.where(integral).astype("Int64").astype(str)
+        matched = matched | (integral & (as_integer == expected))
+    return matched
 
 
 class AbstractAnalyzer(ABC):
@@ -45,6 +67,7 @@ class AbstractAnalyzer(ABC):
         self._model_version = model_version
         self._description = description
         self._metrics_list = []
+        self._missing_values: dict = {}  # column -> sentinel values turned into NaN before the analysis
         self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
         self._results = None
 
@@ -123,22 +146,39 @@ class Analyzer(AbstractAnalyzer):
         metrics_list : list
             List of performance metrics names
         kwargs :
-            keyworded variable length of arguments to a function
+            y_name, pred_name : columns of the ground truth and the prediction (default "y_true", "y_pred")
+            missing_values : sentinel value(s) of these two columns meaning "no value" (e.g. -200)
+            min_label_coverage : minimum share of rows with ground truth; below it the metric is recorded with an
+                error (default 0.0: the metric is evaluated on the labelled rows, however few)
+            min_labelled : minimum number of labelled rows (default 1)
         """
+        sentinels = normalize_missing_values(kwargs.get("missing_values"))
+        if sentinels:
+            for column in (kwargs.get("y_name", "y_true"), kwargs.get("pred_name", "y_pred")):
+                self._declare_missing(column, sentinels)
         for metric_name in metrics_list:
             if metric_name not in PerformanceMetricsFuncs._member_names_:
                 raise error_msg(value=metric_name, message=f"unknown performance metric key {metric_name} given.")
             self._metrics_list.append(PerformanceMetric(metric_name=metric_name, **kwargs))
 
-    def add_drift_metrics(self, metrics_list: list, features_list: list = None):
+    def _declare_missing(self, column, sentinels: tuple):
+        known = self._missing_values.setdefault(column, ())
+        self._missing_values[column] = known + tuple(v for v in sentinels if v not in known)
+
+    def add_drift_metrics(self, metrics_list: list, features_list: list = None, missing_values=None, nan_policy: str = "omit"):
         """Method to add drift metrics list to the analyzer
 
         Parameters
         ----------
         metrics_list : list
-            List of performance metrics names
+            List of drift metric and drift test names; "missing_rate" tests the share of missing values
         features_list : list
             List of features for drift metrics
+        missing_values : scalar, list or dict, optional
+            Sentinel values meaning "no value", turned into NaN: one value or a list for every feature, or a dict
+            {feature: value or list} per feature (e.g. {"CO": -200})
+        nan_policy : str, optional
+            "omit" (default): missing values are set aside and their share recorded; "propagate" or "raise"
         """
 
         # TODO: better handling of numeric vs categorical variables
@@ -148,6 +188,15 @@ class Analyzer(AbstractAnalyzer):
                 message=f'{"features_list is required: the analyzer holds no data before run()."}',
             )
 
+        def sentinels_of(feature):
+            if isinstance(missing_values, dict):
+                return normalize_missing_values(missing_values.get(feature))
+            return normalize_missing_values(missing_values)
+
+        for feature in features_list:
+            if sentinels_of(feature):
+                self._declare_missing(feature, sentinels_of(feature))
+
         for metric_name in metrics_list:
             if metric_name in DriftMetricsFuncs._member_names_:
                 metric_class = DriftMetric
@@ -156,7 +205,14 @@ class Analyzer(AbstractAnalyzer):
             else:
                 raise error_msg(value=metric_name, message=f"unknown drift metric key {metric_name} given.")
             for feature in features_list:
-                self._metrics_list.append(metric_class(metric_name=metric_name, feature_name=feature))
+                self._metrics_list.append(
+                    metric_class(
+                        metric_name=metric_name,
+                        feature_name=feature,
+                        missing_values=sentinels_of(feature),
+                        nan_policy=nan_policy,
+                    )
+                )
 
     def run(self, current: pd.DataFrame, reference: pd.DataFrame, options: dict = {}):
         """Method run() in analyzer from the list of metrics
@@ -172,12 +228,16 @@ class Analyzer(AbstractAnalyzer):
             ({"psi|income": {"threshold": 0.15}}, e.g. AACalibrator.options()), which takes precedence
         """
 
-        ref_model_id_validation = reference.model_id == self._metadata["model_id"]
-        ref_model_version_validation = reference.model_version == self._metadata["model_version"]
+        # declared sentinels become NaN everywhere, summary statistics included
+        current = self._mask_missing(current)
+        reference = self._mask_missing(reference)
+
+        ref_model_id_validation = _matches(reference.model_id, self._metadata["model_id"])
+        ref_model_version_validation = _matches(reference.model_version, self._metadata["model_version"])
         df_reference = reference.loc[ref_model_id_validation & ref_model_version_validation]
 
-        cur_model_id_validation = current.model_id == self._metadata["model_id"]
-        cur_model_version_validation = current.model_version == self._metadata["model_version"]
+        cur_model_id_validation = _matches(current.model_id, self._metadata["model_id"])
+        cur_model_version_validation = _matches(current.model_version, self._metadata["model_version"])
         df_current = current.loc[cur_model_id_validation & cur_model_version_validation].copy()
 
         # format="mixed": timestamps from a store often mix precisions (with or without fractional seconds)
@@ -200,12 +260,12 @@ class Analyzer(AbstractAnalyzer):
         elif df_reference.shape[0] == 0:
             raise error_msg(
                 value=None,
-                message=f'{"Wrong model metadata for reference dataset."}',
+                message=self._metadata_error("reference", reference, ref_model_id_validation, ref_model_version_validation),
             )
         elif df_current.shape[0] == 0:
             raise error_msg(
                 value=None,
-                message=f'{"Wrong model metadata for current dataset."}',
+                message=self._metadata_error("current", current, cur_model_id_validation, cur_model_version_validation),
             )
         else:
             # A failing metric does not stop the run: it is recorded with its error and no value or status
@@ -231,14 +291,32 @@ class Analyzer(AbstractAnalyzer):
                 feature = getattr(metric, "_feature_name", None)
                 kwargs = options.get(f"{metric._name}|{feature}", options.get(metric._name, {}))
                 try:
-                    if isinstance(metric, PerformanceMetric) and (
-                        metric._y_name not in df_current.columns or df_current[metric._y_name].isnull().any()
-                    ):
-                        raise error_msg(value=None, message="Dataset has no ground truth for performance assessment")
+                    # rows without ground truth are set aside by the metric itself (n_labelled, label_coverage)
+                    if isinstance(metric, PerformanceMetric) and metric._y_name not in df_current.columns:
+                        raise error_msg(value=None, message=f"{NO_GROUND_TRUTH} (no column {metric._y_name})")
                     self._results.append(metric.evaluate(current=df_current, reference=df_reference, **kwargs))
                 except Exception as e:
                     logger.warning("Metric %s failed: %s", metric._name, e)
                     self._results.append(self._failed_result(metric, e))
+
+    def _mask_missing(self, data: pd.DataFrame) -> pd.DataFrame:
+        columns = [c for c in self._missing_values if c in data.columns]
+        if not columns:
+            return data
+        data = data.copy()
+        for column in columns:
+            data[column] = mask_missing(data[column], self._missing_values[column])
+        return data
+
+    def _metadata_error(self, name: str, data: pd.DataFrame, id_match: pd.Series, version_match: pd.Series) -> str:
+        """Say which filter emptied the dataset, and what the column holds"""
+        versions = sorted({repr(v) for v in data.model_version.dropna().unique()[:5]})
+        return (
+            f"Wrong model metadata for {name} dataset: {len(data)} rows, {int(id_match.sum())} with "
+            f"model_id={self._metadata['model_id']!r}, {int((id_match & version_match).sum())} also with "
+            f"model_version={self._metadata['model_version']!r} (model_version values: {', '.join(versions)}; "
+            f"dtype {data.model_version.dtype})"
+        )
 
     @staticmethod
     def _failed_result(metric, error: Exception) -> MetricResults:

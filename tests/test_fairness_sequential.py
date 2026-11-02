@@ -97,7 +97,7 @@ def test_monitor_equal_opportunity_uses_positives_only():
 
 
 def test_monitor_bounds_unpaired_observations():
-    monitor = FairnessMonitor("group", "A", ["B"], max_pending=100)
+    monitor = FairnessMonitor("group", "A", ["B"], max_pending=100, reference_pooling=False)
     monitor.update(pd.DataFrame({"group": ["A"] * 1000, "y_pred": [1] * 1000}))
     assert len(monitor._queues["B"][1]) == 100
 
@@ -115,7 +115,7 @@ def test_no_false_alarm_when_every_group_changes_together():
 
 
 def test_leftovers_older_than_the_batch_are_dropped():
-    monitor = FairnessMonitor("group", "A", ["B"])
+    monitor = FairnessMonitor("group", "A", ["B"], reference_pooling=False)
     monitor.update(pd.DataFrame({"group": ["A"] * 50 + ["B"] * 5, "y_pred": [1] * 55}))
     assert len(monitor._queues["B"][1]) == 45  # this batch's unpaired reference decisions
     monitor.update(pd.DataFrame({"group": ["A"] * 10, "y_pred": [0] * 10}))

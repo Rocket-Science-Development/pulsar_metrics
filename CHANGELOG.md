@@ -2,6 +2,151 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] - 2026-11-02
+
+Fixes for the limits confirmed by the night lab of 2 November 2026: C1, C2, C3 (metrics side), M1 to M9, M23
+(model equality side), M26, m1 to m11, m16, m17 and m21. Embedding mean-shift and novelty results are drift metrics.
+
+### Added
+
+**Calibration, analyzer and drift/performance metrics (TS-01, TS-02, TC-01, TC-05, SC-06, LS-01)**
+
+- `AACalibrator`: `fdr_alpha` (0.05), `auto_draws` (True) and `max_draws` (10000). `fit(n_tests=...)` raises the number
+  of A/A draws until the empirical p-value floor `1 / (n_draws + 1)` is half of `fdr_alpha / m`; `n_draws_used` gives
+  the number used. With `auto_draws=False`, a warning is emitted instead (C1).
+- `AACalibrator.empirical_pvalues()` and `fdr_correct(..., pvalue_floor=)` warn when the floor is above `alpha / m`;
+  `AACalibrator.pvalue_floor` (C1).
+- `AACalibrator.errors`: a (metric, feature) that cannot be calibrated is recorded with a warning, and the others are
+  calibrated (M3).
+- `NullDistribution.status` (`ok`, `constant_reference`, `degenerate_null`), with a warning (M4, m2, m3).
+- `NullDistribution.threshold_interval()`, `n_effective`, `reliable`; `AACalibrator(shrink_draws=, reliable_windows=30)`;
+  `AACalibrator.summary()` (M5).
+- `AACalibrator.options()` adds `"reliable"` to each entry, copied by the drift metrics to the new `reliable` field of
+  their results; `options(include_reliability=False)` keeps the old shape (m1).
+- `CalibrationCache` (in memory or `.npy` files) and `fit(cache=)`: null distributions keyed by the metric, a hash of the
+  feature's reference values and the draw settings, reused across windows, runs and models. `AACalibrator.save()` /
+  `AACalibrator.load()` (JSON) (m21).
+- `DriftMetric` / `DriftTestMetric`: `missing_values` (sentinels turned into NaN) and `nan_policy` (`omit`, `propagate`,
+  `raise`), also in `Analyzer.add_drift_metrics(missing_values=..., nan_policy=...)`, with a dict per feature (M1, M2).
+- `missing_rate` drift test: Fisher exact test of the share of missing values (M1).
+- `PerformanceMetric` / `Analyzer.add_performance_metrics`: `min_label_coverage`, `min_labelled` and `missing_values`
+  for `y_true` / `y_pred` (C2, M1).
+- `MetricResults`: `status`, `missing_share_current`, `missing_share_reference`, `n_labelled`, `label_coverage`,
+  `reliable` (optional).
+
+**GenAI, compliance and fairness (TX-02, IM-02, LM-01, FA-01, FA-04, LB-01, LI-03, LS-01)**
+
+- `genai.component_test` / `embedding_drift(test="component")`: shift of the mean PCA components (Hotelling with a
+  ridge, or per-component max-t that names the component), exact permutation p-value (TX-02 M6).
+- `genai.novelty_test` / `embedding_drift(test="novelty")`: k-nearest-neighbour novelty score per text, threshold
+  calibrated on a held-out part of the reference, permutation test of the share of novel texts; the novel texts are
+  returned (TX-02 M7: 5 % of foreign texts, synthetic replica 0.8 power at 300 texts against 0.2 for the MMD).
+  The two new results use metric_type "custom" until their names join the drift metric list.
+- `genai.detection_power`: detection rate by share of changed texts (or images) and window size, with the A/A rate:
+  the minimal detectable change per window size (TX-02 M6/M7, IM-02 m5).
+- `mmd_test(bandwidth=...)`: fixed kernel unit instead of the median distance.
+- `genai.model_equality_power`, `genai.RECOMMENDED_CANARY` (48 prompts x 10 answers) and
+  `model_equality(min_answers=...)`, which reports a non-significant result on a small canary as inconclusive; the
+  `method` of a non-significant result below 480 answers says that a quantization change is usually missed (LM-01 M23).
+- `ComplianceMonitor.alerts(trace, min_severity="critical")`: per-run alert of the violated rules by severity, with the
+  rules version; `ComplianceMonitor.run_record(trace)`: `violated_rules`, `critical_violations`, `max_severity`,
+  `rules_version` for the agent_run record; `genai.SEVERITIES` (info, minor, major, critical; unknown severities warn
+  and rank as major) (LI-03 C3).
+- `ComplianceMonitor.evaluate(reference=..., alpha=0.05, absolute_from="critical")`: rules judged against a reference
+  period (one-sided Fisher exact test, Benjamini-Hochberg over the rules); critical rules keep the absolute verdict
+  (LS-01 M26).
+- `FairnessAnalyzer(max_intersection_depth=2, max_cells=None, declared_groups=None)` and `FairnessAnalyzer.coverage()`
+  (share of rows without verdict per feature and criterion, `no_verdict_share`), with a warning above
+  `FairnessPolicy.max_no_verdict_share` (5 %) of rows in suppressed cells (FA-01 M8, m6, m7).
+- `FairnessPolicy(interval="auto", small_group_size=200)`: Wilson score intervals (Newcombe for differences, MOVER
+  on the log scale for the ratio) for small groups on the rate criteria (FA-04 m8); `FairnessPolicy(equivalence_confidence=...)` and
+  `counterfactual_analysis(equivalence_confidence=...)`: TOST for the "within the zone" verdicts (FA-04 m9, m10).
+- Inconclusive verdicts of `FairnessAnalyzer` and `counterfactual_analysis` give in `method` the rows or probe sets
+  needed for an 80 % chance of a verdict (FA-01 m7, FA-04 m9, m10, LB-01 m17).
+- `pulsar_metrics.fairness.planning`: `required_group_size`, `paired_sets_needed`, `flip_sets_needed`,
+  `sequential_decisions_needed`, and the score intervals `wilson`, `newcombe_difference`, `mover_ratio`,
+  `rate_interval`; `fairness.equivalence_verdict`.
+- `FairnessMonitor(baseline=...)`, `FairnessMonitor.fit_baseline(frame)`: change mode, H0 |gap - baseline| <= tolerance
+  (FA-01 M9); `FairnessMonitor.acknowledge(group, rebaseline=None)` re-arms a test after an alarm (`alarms` keeps
+  the history); `BettingTest(center=...)`.
+
+### Changed
+
+**Calibration, analyzer and drift/performance metrics (TS-01, TS-02, TC-01, TC-05, SC-06, LS-01)**
+
+- **Performance metrics are evaluated on the rows with ground truth** instead of failing as soon as one `y_true` is
+  missing, and report `n_labelled` and `label_coverage`. Below `min_label_coverage` (default 0.0) the result carries an
+  `error`. The old default was the defect: a window with 18 % of labels missing gave no performance at all (C2).
+- **Drift metrics set NaN aside by default** (`nan_policy="omit"`) and record their share. A NaN statistic now gives
+  `drift_status=None` and an `error` instead of `True` (distances) or `False` (tests). The old behaviour was the
+  defect: one NaN made every verdict arbitrary (M2).
+- **`AACalibrator.fit` refuses a reference shorter than 10 windows** unless `allow_short=True` (it used to warn and
+  return thresholds used as reliable). Contiguous draws need 4 windows even with `allow_short`. A warning is emitted
+  below `reliable_windows` (30) windows (m1, M5).
+- **Default number of A/A draws**: 200 is now a minimum, raised with the number of tests (C1). Calibration takes
+  longer with many features; cache it (`CalibrationCache`, `save` / `load`).
+- Contiguous A/A draws are sampled uniformly over pairs of disjoint windows without rejection loop (m3): calibrated
+  values differ slightly from the previous version for the same seed.
+- A/A draws on numeric features run the statistic on numpy arrays (same values; the calibration is no slower despite
+  the new missing-value handling).
+- `Analyzer.run` compares `model_id` / `model_version` as text, and a float column holding integral values also without
+  its ".0", so that a reference read back from a CSV file (`"1.0"` read as `1.0`, `"1"` read as `1.0` next to a
+  missing value) is accepted. Nothing else is compared numerically: `"1.10"` and `"1.1"`, or `"007"` and `7`, stay
+  distinct versions. The error says how many rows each filter kept (m16).
+- **`psi`, `kl` and `chi2` bin numeric data as float whatever their dtype.** `pd.cut` labelled the bins of integer data
+  differently and merged neighbouring bins (values 0 and 1 of a 0-4 feature fell in one bin as int64, in two as
+  float64), so the value depended on the dtype: a column that became float in some windows only (masked sentinel) was
+  binned differently from its reference, and the A/A calibration (float arrays) differed from production (psi
+  threshold 0.0988 vs 0.0859, chi2 alpha 0.0478 vs 0.0367 on a 0-4 integer feature, i.e. 7 % A/A false alarms
+  instead of 5 %). **Values change for integer features**; float features are unchanged (the reference file of the
+  characterization tests still matches).
+- Performance metrics evaluated on part of the window say so in `method` ("labelled rows only: n of N (coverage x %)").
+  With `min_label_coverage=0` (default), a UserWarning is emitted below 50 % coverage. The default stays 0: any
+  positive default would silently withhold the performance of windows that the old code refused outright, while the
+  coverage is now reported in every result and the warning flags the thin cases; set `min_label_coverage` to refuse
+  them (C2).
+- An automatic increase of the A/A draws above 5 times `n_draws` is logged as a WARNING (logger
+  `pulsar_metrics.calibration`) with the number of evaluations, an estimated cost and a pointer to `CalibrationCache`;
+  smaller increases stay at INFO (C1).
+- `Analyzer.run`: declared sentinels are also turned into NaN for the summary statistics (M1).
+- Numeric series of different dtypes (int and float) are compared as float by the drift metrics.
+
+**GenAI, compliance and fairness (TX-02, IM-02, LM-01, FA-01, FA-04, LB-01, LI-03, LS-01)**
+
+- **Default changed** `FairnessAnalyzer(max_intersection_depth=2)`: intersections stop at pairs of attributes. All
+  combinations (the former behaviour) exploded with 5 attributes (65 to 75 % of the cells suppressed, 30 to 80 times
+  the run time); pass `max_intersection_depth=None` to keep them. Combinations whose cells are all suppressed are
+  skipped with a warning instead of raising.
+- **Default changed** `FairnessPolicy(interval="auto")`: groups under 200 rows get score intervals on the rate criteria;
+  the percentile bootstrap was anti-conservative for them (3 to 5 % one-sided misses instead of 2.5 %).
+  `interval="bootstrap"` restores the former intervals.
+- **Default changed** `FairnessMonitor(reference_pooling=True)`: each group decision is paired with the mean of a
+  disjoint chunk of the batch's reference decisions; the 1:1 pairs dropped about 95 % of the reference decisions of a
+  small group (FA-04 m11: group of 5 %, drop of 0.1, 20,000 decisions, detection 16 % -> 52 %, false alarms 0 to 0.5 %).
+  `reference_pooling=False` restores the 1:1 pairs. The README example now establishes the disparity after 3,138
+  pairs (e-value 22) instead of 3,184 (21).
+- The fairness bootstrap of 0/1 rates draws exact binomial replicates instead of resampling rows in a Python loop
+  (same distribution; 5 attributes x 50,000 rows, all combinations: 188 s -> 5 s). Bootstrap intervals differ in their
+  last digits from 0.10.
+- `mmd_test` evaluates the permutations with one matrix product per block and fits the PCA by eigendecomposition
+  (TX-02 m4: 1000 x 1000 texts, 500 permutations, 11 to 18 s -> 0.7 s); same p-values for the same seed. The PCA
+  keeps only directions with positive variance, so at most min(n_components, rank) components.
+- Missing values of a protected attribute (NaN, None) now form a group of their own, `<missing>`, in
+  `FairnessAnalyzer`; they used to crash it on pandas 3 (`astype(str)` keeps NaN there).
+
+### Fixed
+
+**GenAI, compliance and fairness (TX-02, IM-02, LM-01, FA-01, FA-04, LB-01, LI-03, LS-01)**
+
+- PCA of the embedding tests with fewer texts than components and more dimensions than texts: the numerically null
+  directions of the Gram matrix were divided by ~0 (projections up to 1e137, wrong p-values in about half of the
+  draws at 12 + 12 texts in 384 dimensions).
+- Ratio score interval: MOVER on the log scale instead of the direct MOVER-R formula, which returned a lower bound of
+  0 when the upper Wilson bound of the reference rate exceeded twice that rate (observed ratio 10: [0, 59], now
+  [1.7, 61]).
+- `FairnessAnalyzer`: only combinations whose cells are all suppressed (`AllCellsSuppressed`) are skipped; other
+  errors propagate. The `method` of exploratory (non-declared) groups names their interval instead of a dict.
+
 ## [0.10.0] - 2026-11-02
 
 ### Added

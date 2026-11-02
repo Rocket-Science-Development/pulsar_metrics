@@ -76,8 +76,10 @@ def test_invalid_settings_and_inputs():
     with pytest.raises(error_msg):
         AACalibrator(window_size=10, quantile=0.4)
     small = frame(np.arange(30.0))
-    with pytest.raises(error_msg, match="2 x window_size"):
+    with pytest.raises(error_msg, match="at least 10 are needed"):
         AACalibrator(window_size=20).fit(small, [DriftMetric("wasserstein", "score")])
+    with pytest.raises(error_msg, match="at least 4 windows"):
+        AACalibrator(window_size=20, allow_short=True).fit(small, [DriftMetric("wasserstein", "score")])
     with pytest.raises(error_msg, match="no drift metric"):
         AACalibrator(window_size=5).fit(small, [])
 
@@ -132,7 +134,11 @@ def test_analyzer_with_calibrated_options_and_fdr():
     assert bool(verdict["latency"]) is False  # unchanged feature
 
 
-def test_warns_when_the_reference_is_too_short_for_the_window():
+def test_short_reference_is_refused_unless_allowed_and_then_flagged_unreliable():
+    # m1 (lab TS-01): 4.4 windows used to give only a warning, and the thresholds were used as reliable
     reference = frame(np.random.default_rng(4).normal(size=1000))
+    with pytest.raises(error_msg, match="allow_short=True"):
+        AACalibrator(window_size=200, n_draws=50).fit(reference, [DriftTestMetric("ks_2samp", "score")])
     with pytest.warns(UserWarning, match="unreliable"):
-        AACalibrator(window_size=300, n_draws=50).fit(reference, [DriftTestMetric("ks_2samp", "score")])
+        cal = AACalibrator(window_size=200, n_draws=50, allow_short=True).fit(reference, [DriftTestMetric("ks_2samp", "score")])
+    assert cal.options()["ks_2samp|score"]["reliable"] is False
