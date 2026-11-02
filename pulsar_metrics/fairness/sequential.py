@@ -110,8 +110,12 @@ class FairnessMonitor:
     tolerance : float, optional
         Acceptable absolute difference of rates (default 0.05)
     max_pending : int, optional
-        Unpaired observations kept per group and side, the oldest being dropped first (default 10,000); dropping does
-        not depend on the values, so validity is kept
+        Upper bound of the unpaired observations kept per group and side (default 10,000)
+
+    Pairs join observations of the same batch, or of the previous one: unpaired observations older than the current
+    batch are dropped. Pairing a group's decisions with old reference decisions would turn a change shared by every
+    group (a seasonal rise of approvals) into a false disparity. Dropping depends on counts only, never on the values,
+    so validity is kept.
     """
 
     def __init__(
@@ -155,11 +159,17 @@ class FairnessMonitor:
         reference = self._observations(batch[keys == self.reference_group]).tolist()
         for g in self.groups:
             group_queue, reference_queue = self._queues[g]
-            group_queue.extend(self._observations(batch[keys == g]).tolist())
+            observations = self._observations(batch[keys == g]).tolist()
+            group_queue.extend(observations)
             reference_queue.extend(reference)
             test = self.tests[g]
             while group_queue and reference_queue:
                 test.update(group_queue.popleft(), reference_queue.popleft())
+            # keep only leftovers of this batch: the next pairs stay contemporaneous
+            while len(group_queue) > len(observations):
+                group_queue.popleft()
+            while len(reference_queue) > len(reference):
+                reference_queue.popleft()
         return self.results()
 
     def results(self) -> list:
