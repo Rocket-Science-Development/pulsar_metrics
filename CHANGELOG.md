@@ -2,6 +2,55 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] - calibration-analyzer
+
+Limits confirmed by the night lab of 2 November 2026 (C1, C2, M1 to M5, m1 to m3, m16, m21).
+
+### Added
+- `AACalibrator`: `fdr_alpha` (0.05), `auto_draws` (True) and `max_draws` (10000). `fit(n_tests=...)` raises the number
+  of A/A draws until the empirical p-value floor `1 / (n_draws + 1)` is half of `fdr_alpha / m`; `n_draws_used` gives
+  the number used. With `auto_draws=False`, a warning is emitted instead (C1).
+- `AACalibrator.empirical_pvalues()` and `fdr_correct(..., pvalue_floor=)` warn when the floor is above `alpha / m`;
+  `AACalibrator.pvalue_floor` (C1).
+- `AACalibrator.errors`: a (metric, feature) that cannot be calibrated is recorded with a warning, and the others are
+  calibrated (M3).
+- `NullDistribution.status` (`ok`, `constant_reference`, `degenerate_null`), with a warning (M4, m2, m3).
+- `NullDistribution.threshold_interval()`, `n_effective`, `reliable`; `AACalibrator(shrink_draws=, reliable_windows=30)`;
+  `AACalibrator.summary()` (M5).
+- `AACalibrator.options()` adds `"reliable"` to each entry, copied by the drift metrics to the new `reliable` field of
+  their results; `options(include_reliability=False)` keeps the old shape (m1).
+- `CalibrationCache` (in memory or `.npy` files) and `fit(cache=)`: null distributions keyed by the metric, a hash of the
+  feature's reference values and the draw settings, reused across windows, runs and models. `AACalibrator.save()` /
+  `AACalibrator.load()` (JSON) (m21).
+- `DriftMetric` / `DriftTestMetric`: `missing_values` (sentinels turned into NaN) and `nan_policy` (`omit`, `propagate`,
+  `raise`), also in `Analyzer.add_drift_metrics(missing_values=..., nan_policy=...)`, with a dict per feature (M1, M2).
+- `missing_rate` drift test: Fisher exact test of the share of missing values (M1).
+- `PerformanceMetric` / `Analyzer.add_performance_metrics`: `min_label_coverage`, `min_labelled` and `missing_values`
+  for `y_true` / `y_pred` (C2, M1).
+- `MetricResults`: `status`, `missing_share_current`, `missing_share_reference`, `n_labelled`, `label_coverage`,
+  `reliable` (optional).
+
+### Changed
+- **Performance metrics are evaluated on the rows with ground truth** instead of failing as soon as one `y_true` is
+  missing, and report `n_labelled` and `label_coverage`. Below `min_label_coverage` (default 0.0) the result carries an
+  `error`. The old default was the defect: a window with 18 % of labels missing gave no performance at all (C2).
+- **Drift metrics set NaN aside by default** (`nan_policy="omit"`) and record their share. A NaN statistic now gives
+  `drift_status=None` and an `error` instead of `True` (distances) or `False` (tests). The old behaviour was the
+  defect: one NaN made every verdict arbitrary (M2).
+- **`AACalibrator.fit` refuses a reference shorter than 10 windows** unless `allow_short=True` (it used to warn and
+  return thresholds used as reliable). Contiguous draws need 4 windows even with `allow_short`. A warning is emitted
+  below `reliable_windows` (30) windows (m1, M5).
+- **Default number of A/A draws**: 200 is now a minimum, raised with the number of tests (C1). Calibration takes
+  longer with many features; cache it (`CalibrationCache`, `save` / `load`).
+- Contiguous A/A draws are sampled uniformly over pairs of disjoint windows without rejection loop (m3): calibrated
+  values differ slightly from the previous version for the same seed.
+- A/A draws on numeric features run the statistic on numpy arrays (same values; the calibration is no slower despite
+  the new missing-value handling).
+- `Analyzer.run` compares `model_id` / `model_version` as text, and numerically for numbers, so that a reference read
+  back from a CSV file (`"1.0"` read as `1.0`) is accepted; the error says how many rows each filter kept (m16).
+- `Analyzer.run`: declared sentinels are also turned into NaN for the summary statistics (M1).
+- Numeric series of different dtypes (int and float) are compared as float by the drift metrics.
+
 ## [0.10.0] - 2026-11-02
 
 ### Added
