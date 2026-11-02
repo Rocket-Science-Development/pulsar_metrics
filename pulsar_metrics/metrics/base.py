@@ -38,6 +38,7 @@ class MetricResults(BaseModel):
     method: Optional[str] = None  # how the value and the interval were obtained
     test_type: Optional[str] = None  # "fixed" or "sequential"
     e_value: Optional[float] = None  # sequential tests
+    p_value: Optional[float] = None  # when the test gives one (permutation tests)
     suppressed: Optional[bool] = None  # cell below the minimum size: value withheld
 
     # TODO: validators for model id's, model's version, data_id, and metrics type
@@ -55,7 +56,10 @@ class MetricResults(BaseModel):
     @classmethod
     def metric_name_is_invalid(cls, v, info: ValidationInfo):
         metric_names = (
-            PerformanceMetricsFuncs._member_names_ + DriftMetricsFuncs._member_names_ + DriftTestMetricsFuncs._member_names_
+            PerformanceMetricsFuncs._member_names_
+            + DriftMetricsFuncs._member_names_
+            + DriftTestMetricsFuncs._member_names_
+            + ["model_equality"]  # pulsar_metrics.genai.model_equality
         )
         if (v not in metric_names) and (
             info.data.get("metric_type")
@@ -64,6 +68,7 @@ class MetricResults(BaseModel):
                 MetricsType.statistics.value,
                 MetricsType.fairness.value,
                 MetricsType.explainability.value,
+                MetricsType.agents.value,
             ]
         ):
             raise error_msg(

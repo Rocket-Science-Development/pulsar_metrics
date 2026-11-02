@@ -2,6 +2,19 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - 2026-11-02
+
+### Added
+- `pulsar_metrics.genai.mmd_test` / `embedding_drift`: MMD permutation test on embeddings (Gaussian mixture kernel,
+  widths 0.5 to 4 times the median distance; PCA fitted on both windows pooled, without labels, so that the
+  permutation test stays valid).
+- `pulsar_metrics.genai.model_equality_test` / `model_equality`: model equality on a canary set (Gao et al., ICLR 2025),
+  MMD with a Hamming kernel within prompts, permutation p-value within prompts.
+- `pulsar_metrics.genai.ComplianceMonitor`: compliance of agent trajectories with rules in LTLf or Declare templates
+  (`existence`, `absence`, `init`, `precedence`, `response`, `chain_response`, `not_succession`, `allowed_tools`), loaded
+  from YAML or dicts; violations per run, compliance rate per rule with a Wilson interval (metric type `agents`).
+- `MetricResults.p_value` (optional).
+
 ## [0.9.1] - 2026-11-01
 
 ### Fixed
