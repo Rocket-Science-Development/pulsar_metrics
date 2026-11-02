@@ -38,6 +38,7 @@ class MetricsType(Enum):
     statistics = "statistics"
     fairness = "fairness"
     explainability = "explainability"
+    agents = "agents"
 
 
 class DriftMetricsFuncs(Enum):

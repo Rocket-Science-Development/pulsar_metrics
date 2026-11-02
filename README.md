@@ -31,6 +31,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [Group fairness](#group-fairness)
   - [Continuous fairness monitoring](#continuous-fairness-monitoring-anytime-valid)
   - [Counterfactual probes](#counterfactual-probes-of-llm-applications-and-agents)
+  - [Text drift, model equality, compliance](#text-drift-model-equality-and-agent-compliance)
 - [Explanations and their drift](#explanations-and-their-drift)
 - [Custom metrics](#custom-metrics)
 - [Development](#development)
@@ -533,6 +534,33 @@ counterfactual_action_rate_ratio       name=en_ca    +1.053 [+0.714, +1.500] Non
 counterfactual_action_rate_difference  name=maghreb  +0.345 [+0.280, +0.415] True
 counterfactual_action_rate_ratio       name=maghreb  +4.632 [+3.185, +7.250] True
 ```
+
+### Text drift, model equality and agent compliance
+
+`pulsar_metrics.genai` adds three tests for LLM applications and agents:
+
+| Function | Question | Test |
+|---|---|---|
+| `embedding_drift` / `mmd_test` | Has the **content** of the requests (or answers, or retrieved passages) changed, beyond what lengths and tools show? | MMD between the embeddings of two windows, Gaussian mixture kernel (0.5 to 4 times the median distance), PCA fitted on both windows pooled, permutation p-value |
+| `model_equality` / `model_equality_test` | Is the endpoint still serving the **same model** (not a quantized version, another model, a new system prompt)? | Answers to a fixed canary set, sampled several times; MMD with a Hamming kernel within prompts (Gao et al., ICLR 2025); permutation p-value within prompts |
+| `ComplianceMonitor` | Does every run respect the **behavioural rules** of the agent? | Rules in linear temporal logic on finite traces (LTLf) or Declare templates (`precedence`, `response`, `absence`, `allowed_tools`...), versioned in YAML; per run, the violated rules; per rule, the compliance rate with a Wilson interval |
+
+```python
+from pulsar_metrics.genai import ComplianceMonitor, load_rules, trace_from
+
+monitor = ComplianceMonitor(load_rules({"rules": [
+    {"id": "auth-before-file", "template": "precedence", "events": ["authenticate", "create_file"], "severity": "critical"},
+    {"id": "no-repeated-file", "formula": "G (create_file -> !X create_file)"},
+]}), version="rules/1")
+print(monitor.violations(trace_from("search_programs>create_file>authenticate")))
+```
+
+```
+['auth-before-file']
+```
+
+LTLf operators: `!`, `&`, `|`, `->`, `X` (strong next), `F` (eventually), `G` (always), `U` (until); atoms are event
+names (the tools called, in order, as in the `tool_sequence` field of the agent records).
 
 ## Explanations and their drift
 
