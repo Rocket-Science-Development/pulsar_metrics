@@ -724,7 +724,7 @@ print(monitor.violations(trace_from("search_programs>create_file>authenticate"))
 ```
 
 LTLf operators: `!`, `&`, `|`, `->`, `X` (strong next), `F` (eventually), `G` (always), `U` (until); atoms are event
-names (the tools called, in order, as in the `tool_sequence` field of the agent records).
+names (the tools called, in order, as in the `tool_sequence` field of the agent records), or atoms with predicates over a rich trace (below).
 
 - **Per-run alerts**: `monitor.alerts(trace)` returns the violated rules of severity `critical` (or
   `min_severity=...`), most severe first, each with the rules version: one run that creates a file before
@@ -742,6 +742,57 @@ print([a["rule_id"] for a in monitor.alerts(trace_from("search_programs>create_f
 ```
 ['auth-before-file']
 ```
+
+#### Rules over arguments, statuses and conversation events
+
+A trace is a list of names (`trace_from`) or a **rich trace**: a list of mappings
+`{"name": ..., "kind": "tool" | "event", "args": {...}, "status": "ok" | "error" | "timeout" | "soft_failure"}`, with
+the conversation events (e.g. `user_confirmation`) in time order among the tool calls. `ComplianceMonitor` declares
+`accepts_rich_trace = True`, so the trajectory collector of pulsar-data-collection passes it rich traces. A plain atom
+matches an element by its name, on both forms; atom predicates read the rest of a rich element:
+
+| Atom | Matches |
+|---|---|
+| `cancel_pending_order` | an element of that name (tool or event), as before |
+| `cancel_pending_order[order_id=#W1]` | that tool with the argument equal to the value (values compared as text: `42` matches `42` and `"42"`; quote values with spaces or commas: `[reason='no longer needed']`) |
+| `cancel_pending_order[order_id]` | that tool with the argument present |
+| `cancel_pending_order[reason!=other, order_id]` | conditions joined by commas, all required |
+| `get_order_details[status=error]` | that tool with that status (`status` and `kind` are element fields; `args.status=...` reads an argument named status) |
+| `@user_confirmation` | an **event** of that name (never a tool) |
+| `*[status=error]`, `@*` | any tool with that status, any event |
+
+Templates take a list of atoms for "any of them" (`events: ["@user_confirmation", [cancel_pending_order,
+modify_pending_order_address]]`) and two new templates: `alternate_precedence` (each b preceded by an a since the
+previous b: a confirmation before every write) and `alternate_response` (each a followed by a b before the next a).
+`bind` restricts every tool atom to one value of the named arguments at a time, the rule holding for each value:
+
+```yaml
+rules:
+  - id: status-checked            # an order is looked up before it is changed (the same order)
+    template: precedence
+    events: [get_order_details, [cancel_pending_order, modify_pending_order_address]]
+    bind: [order_id]
+    severity: major
+  - id: confirm-before-write      # a user confirmation since the last write, before each write
+    template: alternate_precedence
+    events: ["@user_confirmation", [cancel_pending_order, modify_pending_order_address]]
+    severity: critical
+```
+
+A rule sees the tool calls and only the events it names, so the rules over tool names give the same verdict on a rich
+trace as on its tool sequence (an `agent_msg` event between two calls does not break `X` or `chain_response`).
+
+**Not evaluable.** A rule that reads arguments, statuses or events (`Rule.needs_rich_trace`: a predicate, an `@`
+atom or `bind`) cannot be judged on a name-only trace (`trace_from` returns a `NameTrace`; a non-empty list of
+strings counts as one too), nor when the elements it depends on lack the data (a tool without `args`, a bound tool
+without the bound argument; three-valued logic, so known elements still decide when they can). Such a rule is
+reported, never counted as a violation or a pass: `Rule.verdict` returns None and `Rule.check` raises
+`RuleNotEvaluable`; `monitor.not_evaluable(trace)` lists them; `violations` and `alerts` leave them out with a
+`NotEvaluableWarning`; `run_record` adds `not_evaluable_rules` (only then); `evaluate` counts per rule the runs it
+was judged on (`n`, the method says how many were not) and gives `status="not_evaluable"`, `metric_value` and
+`drift_status` None to a rule judged on no run. On the synthetic replica of LA-02 (40 retail runs, 36 with a write),
+the confirmation rule over tool names flags all 36; with `@user_confirmation` on the rich traces it flags the 23 real
+violations, and on the name-only traces it is not evaluable on all 40.
 
 #### Known limits (night lab, TX-02, IM-02, LM-01, LI-03 and LS-01)
 
