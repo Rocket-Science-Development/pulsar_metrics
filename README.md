@@ -448,6 +448,60 @@ are ignored.
 
 The cost is a delay of `windows - 1` windows before a lasting drift is confirmed.
 
+## Evidence records (stable export format)
+
+`MetricResults` is the in-memory result of an analysis. To hand results over to another system (an audit trail, a
+central monitoring or governance service) without that system depending on pulsar-metrics, `pulsar_metrics.evidence`
+turns them into **evidence records**: one finding about one monitored system, in a versioned, typed and
+self-describing JSON format, `"pulsar.evidence/1"`, described by a JSON Schema shipped with the package
+(`pulsar_metrics/schemas/evidence-1.json`).
+
+```python
+from pulsar_metrics.evidence import to_evidence
+
+records = to_evidence(
+    analyzer,  # after run(); also a FairnessAnalyzer, one MetricResults or a list of them
+    system_id="SYS-0042",  # your identifier of the monitored system (e.g. its entry in an inventory of AI systems)
+    reference_id="holdout-2026-01",
+    calibrator=calibrator,  # optional: AACalibrator behind the thresholds
+    persistence=persistence,  # optional: DriftPersistence after this window
+)
+payload = [r.to_dict() for r in records]  # JSON-ready; Evidence.from_json / from_dict read them back
+```
+
+| Field | Meaning |
+|---|---|
+| `schema_version` | `"pulsar.evidence/1"` |
+| `evidence_id` | sha256 of the identifying content (system, model, metric family and name, feature, group, subject metric, window, reference): the same finding sent twice has the same id, so a receiver can deduplicate; a recomputation of the same window keeps the id (keep the latest `produced_at`) |
+| `system_id`, `model_id`, `model_version` | Monitored system (identifier supplied by the user) and model |
+| `metric` | `family` (`drift`, `performance`, `fairness`, `genai`, `compliance`, `data_quality`, `explainability`, `custom`), `name`, `feature`, `group` / `reference_group` (fairness), `subject_metric`, `value`, `threshold` (number or `[low, high]`), `direction` (`upper`: alert above, `lower`: alert below, `outside`: alert outside the zone, `none`), `decision_basis` (`value`, `p_value`, `confidence_interval`, `reference_test`, `sequential_test`), `p_value`, `ci_low` / `ci_high`, `e_value`, `n`, `status`, `error`, `method` |
+| `metric.status` | `ok`, `alert` (drift, degradation, disparity or violation detected), `no_verdict` (no threshold, inconclusive), `not_evaluable` (suppressed group, no ground truth, rule not evaluable), `error` |
+| `window`, `reference` | `start`, `end` (UTC, ISO 8601), `n_rows`; the reference also has the `id` you give |
+| `reliability` | `reliable` (bool), `reasons` (codes that make it false), `notes` (codes that lower the confidence only), `reason_text` (Pulsar's message), `calibration` (`method`: `aa_calibration`, `nominal` or `none`; `null_status`, `window_size`, `quantile`, reference windows, draws, share at bound, 90 % interval of the threshold, empirical p-value, p-value floor), `persistence` (`windows`, `drift_streak`, `no_drift_streak`, `confirmed`, `changed`), `quality` (missing shares, `low_expected_share`, `n_labelled`, `label_coverage`, `suppressed`) |
+| `provenance` | `producer` (`pulsar-metrics`), `producer_version`, `produced_at` (UTC), `run_name` |
+| `details` | Free aggregates (e.g. `conf_int`, `reference_value` of summary statistics). **Aggregates only, never raw rows, texts or personal data**; capped at 64 KiB |
+
+Reliability codes (`REASON_CODES`, `NOTE_CODES` in the module):
+
+- `reasons`, `reliable` is then `false`: `computation_error`, `no_ground_truth`, `insufficient_labels`,
+  `few_labelled_rows`, `constant_reference`, `saturated_null`, `degenerate_null`, `window_size_mismatch`,
+  `short_reference`, `suppressed_group`, `rule_not_evaluable`, `instrument_unusable`, `flagged_unreliable`;
+- `notes`: `nominal_threshold`, `no_threshold`, `sparse_cells`, `missing_values_set_aside`, `partial_label_coverage`,
+  `drift_not_confirmed`, `ecological_inference`, `small_canary`.
+
+`reliable` is stricter than `MetricResults.reliable`: it is also false for a failed or not evaluable metric and for a
+constant reference. `metric.status` is the verdict of the window itself; with `persistence`, `confirmed` says whether
+the alert has lasted (`drift_not_confirmed` otherwise).
+
+**Compatibility.** Additive changes keep `"pulsar.evidence/1"`: a new optional field, a new code or family, a new key
+of `details`. Readers must ignore unknown fields and treat unknown codes as unknown (`Evidence.from_json` does). Any
+other change (field removed, renamed or retyped, meaning of a value changed, identity fields of `evidence_id` changed)
+is breaking and moves to `"pulsar.evidence/2"`. The committed schema is checked against the model by the tests;
+regenerate it with `python -c "from pulsar_metrics.evidence import write_json_schema; write_json_schema()"`.
+
+To send the records over HTTPS with local buffering and retries, see `EvidenceOutbox` in
+[pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection).
+
 ## Monitoring LLM applications and agents
 
 [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection) turns OpenTelemetry
