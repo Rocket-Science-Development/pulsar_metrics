@@ -151,7 +151,8 @@ class Analyzer(AbstractAnalyzer):
             missing_values : sentinel value(s) of these two columns meaning "no value" (e.g. -200)
             min_label_coverage : minimum share of rows with ground truth; below it the metric is recorded with an
                 error (default 0.0: the metric is evaluated on the labelled rows, however few)
-            min_labelled : minimum number of labelled rows (default 1)
+            min_labelled : minimum number of labelled rows (default 30 for auc and aucpr, which also need both
+                classes, 1 otherwise); below 30, results are flagged reliable=False
         """
         sentinels = normalize_missing_values(kwargs.get("missing_values"))
         if sentinels:
@@ -166,7 +167,15 @@ class Analyzer(AbstractAnalyzer):
         known = self._missing_values.setdefault(column, ())
         self._missing_values[column] = known + tuple(v for v in sentinels if v not in known)
 
-    def add_drift_metrics(self, metrics_list: list, features_list: list = None, missing_values=None, nan_policy: str = "omit"):
+    def add_drift_metrics(
+        self,
+        metrics_list: list,
+        features_list: list = None,
+        missing_values=None,
+        nan_policy: str = "omit",
+        min_expected: float = None,
+        max_levels: int = None,
+    ):
         """Method to add drift metrics list to the analyzer
 
         Parameters
@@ -180,6 +189,12 @@ class Analyzer(AbstractAnalyzer):
             {feature: value or list} per feature (e.g. {"CO": -200})
         nan_policy : str, optional
             "omit" (default): missing values are set aside and their share recorded; "propagate" or "raise"
+        min_expected : float, optional
+            chi2, psi and kl: merge the levels whose expected count in the current window (from the reference shares)
+            is below it into one "other" level, e.g. 5 for features with many sparse levels (default None: no grouping).
+            The same grouping applies in the A/A draws of AACalibrator. Other metrics ignore it.
+        max_levels : int, optional
+            chi2, psi and kl: keep at most this many levels, "other" included (default None)
         """
 
         # TODO: better handling of numeric vs categorical variables
@@ -212,6 +227,8 @@ class Analyzer(AbstractAnalyzer):
                         feature_name=feature,
                         missing_values=sentinels_of(feature),
                         nan_policy=nan_policy,
+                        min_expected=min_expected,
+                        max_levels=max_levels,
                     )
                 )
 
@@ -226,7 +243,9 @@ class Analyzer(AbstractAnalyzer):
             The input reference (pandas DataFrame)
         options : dict,optional
             Keyword arguments per metric name ({"psi": {"threshold": 0.2}}), or per metric and feature
-            ({"psi|income": {"threshold": 0.15}}, e.g. AACalibrator.options()), which takes precedence
+            ({"psi|income": {"threshold": 0.15}}, e.g. AACalibrator.options()), which takes precedence. The calibrated
+            options also carry "reliable", "calibration_status" and "window_size": a saturated null, or a window more
+            than 2x smaller or larger than the calibrated one, gives reliable=False with a reliability_reason
         """
 
         # declared sentinels become NaN everywhere, summary statistics included

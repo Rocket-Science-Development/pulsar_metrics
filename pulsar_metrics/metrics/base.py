@@ -48,6 +48,8 @@ class MetricResults(BaseModel):
     n_labelled: Optional[int] = None  # performance: rows with both ground truth and prediction, the rows evaluated
     label_coverage: Optional[float] = None  # performance: n_labelled / rows of the window
     reliable: Optional[bool] = None  # threshold from a calibration flagged unreliable (False): provisional verdict
+    reliability_reason: Optional[str] = None  # why reliable is False (e.g. window size far from the calibrated one)
+    low_expected_share: Optional[float] = None  # chi2 / psi / kl: share of contingency cells with expected count < 5
 
     # TODO: validators for model id's, model's version, data_id, and metrics type
     @field_validator("metric_type")
