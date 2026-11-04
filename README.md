@@ -962,7 +962,7 @@ was judged on (`n`, the method says how many were not) and gives `status="not_ev
 the confirmation rule over tool names flags all 36; with `@user_confirmation` on the rich traces it flags the 23 real
 violations, and on the name-only traces it is not evaluable on all 40.
 
-#### Known limits (night lab, TX-02, IM-02, LM-01, LI-03 and LS-01)
+#### Known limits (night lab, TX-02, IM-02, LM-01, LI-03, LS-01 and LR-03)
 
 | Limit | Lab figure | What the code does now |
 |---|---|---|
@@ -970,6 +970,7 @@ violations, and on the name-only traces it is not evaluable on all 40.
 | MMD misses a small share of foreign texts | 5 % of English texts among French reviews: power 0.40 at 300, 0.05 at 100 | `novelty_test`: on the synthetic replica, 0.8 at 300 and 0.5 at 100 (MMD: 0.2 and 0.15), and the foreign texts are named. Still to be confirmed on the lab's embeddings |
 | The encoder and the PCA matter | power by PCA components (none / 8 / 32 / 128): 0.05 / 0.50 / 0.55 / 0.20; nomic-embed-text 0.25 (polarity) and 0.90 (5 % English) | `n_components` (32) and `bandwidth` are exposed; measure with `detection_power` before choosing |
 | Cost of `mmd_test` at the default cap | 1000 x 1000 texts, 500 permutations: 11 to 18 s | vectorized permutations and eigendecomposition PCA: 0.7 s |
+| Correlated rows of one unit break the permutation test | passages retrieved by a RAG agent (2 per run, top 2 of the same query) permuted as independent rows: 41 to 43 % A/A false alarms on windows of 100 runs (LR-03 replay, 2,000 draws) | `mmd_test(..., groups=(reference_groups, current_groups))` (also through `embedding_drift`) permutes and subsamples whole groups: 5.0 % [4.3, 5.8] on 3,000 draws. One row per run (its top passage) holds the level too. Without `groups`, results are unchanged |
 | MMD on pixels needs large image windows | 3 corruptions of 15 need more than 50 images for 80 % power; 7 of 15 missed at 20 images | `detection_power` sizes the window on your own images; an image encoder (embeddings instead of pixels) is the stronger lever and is left to the user |
 | A change of quantization is missed by the default canary | llama3.2 3B q4_K_M vs q8_0: detected 20 % at 12 prompts x 5 answers, 40 % at 24 x 5, 60 % at 48 x 5, 100 % at 48 x 10 (5 runs per cell; the 480 figure has a 95 % lower bound near 0.5) | `RECOMMENDED_CANARY` (48 x 10), `model_equality_power` on a pilot, `min_answers=480` for an explicit "inconclusive"; the default canary size of the probe lives in pulsar-data-collection |
 | Rules violated at a stable rate alert in every window | auth-before-file 9 windows of 10 (6.0 % against 7.2 % in the reference), amount-after-eligibility 10 of 10 (29.7 % against 28.9 %) | `evaluate(reference=...)` |
