@@ -122,10 +122,13 @@ Every metric produces a `MetricResults` (pydantic model):
 | `drift_status` | **`True` = drift or degradation detected, `False` = none, `None` = no verdict** |
 | `conf_int` | Bootstrap confidence interval (performance metrics with `bootstrap=True`) |
 | `error` | Message when the metric could not be computed (`metric_value` and `drift_status` are then `None`) |
-| `status` | Data-quality status of a drift result: `constant_reference` when the reference of the feature holds a single value |
+| `status` | Data-quality status of a drift result: `constant_reference` when the reference of the feature holds a single value, `saturated` when the calibrated null sits at the bound of the statistic (see [Known limits of the calibration](#known-limits-of-the-calibration)) |
 | `missing_share_current`, `missing_share_reference` | Drift metrics: share of missing values (NaN or declared sentinels) set aside |
 | `n_labelled`, `label_coverage` | Performance metrics: rows evaluated (ground truth and prediction present) and their share of the window |
-| `reliable` | `False` when the threshold comes from a calibration flagged unreliable (`AACalibrator.options()`): provisional verdict |
+| `reliable` | `False` when the threshold comes from a calibration flagged unreliable (`AACalibrator.options()`), when the window is more than 2x smaller or larger than the calibrated `window_size`, or when a performance metric rests on fewer than 30 labelled rows: provisional verdict |
+| `reliability_reason` | Why `reliable` is `False` |
+| `n` | Drift metrics: rows of the current window behind the value (after missing values are set aside) |
+| `low_expected_share` | `chi2`, `psi`, `kl`: share of the cells of the 2 x k table with an expected count below 5 |
 
 The verdict follows **one convention for every metric**:
 
@@ -157,6 +160,19 @@ the remaining metrics.
 `psi` and `kl` add a small smoothing (`epsilon=1e-6`, then renormalisation) to every proportion, so that a category or
 bin absent from one sample gives a large but finite value instead of `inf`. `psi`, `kl` and `chi2` bin numeric
 features as float whatever their dtype, so that an integer column and the same column as float give the same value.
+The smoothing also caps them: two samples without any shared bin give `psi` = 2 ln(1/epsilon) = 27.6, however large
+the shift.
+
+**Many sparse levels.** With hundreds of levels (airports, products), most cells of the table are nearly empty:
+`chi2` spends its degrees of freedom on them and loses power, and `psi` / `kl` add noise. `min_expected=5` merges the
+levels whose expected count in the current window (current size x reference share) is below 5 into one `__other__`
+level; `max_levels=k` keeps the k - 1 most frequent reference levels. The levels are chosen on the reference, so the
+same grouping applies to the window and to every A/A draw of a calibration. Both are opt-in, at construction or in
+`add_drift_metrics(..., min_expected=5)`. Every `chi2` / `psi` / `kl` result reports `low_expected_share`, and a
+categorical feature above 20 % without grouping raises a UserWarning. In the lab (TC-02, 293 airports, 5 % of the rows
+moved onto the 5 largest), grouping raised the power of `chi2` from 0.05 to 0.275 at 2,000 rows and from 0.255 to
+0.695 at 5,000; at 20,000 rows both are near 1. Grouping is not the default: with a calibrated null the raw test keeps
+a valid false alarm rate, it only loses power, and grouping changes every categorical p-value.
 
 ### Data drift: statistical tests (`DriftTestMetric`, verdict on `alpha`)
 
@@ -202,8 +218,11 @@ then counts as a drift. The change is real, but read it as "the feature started 
 
 Ground truth often arrives late or only for part of the traffic. Performance metrics are computed on the rows that
 have both ground truth and prediction, and report `n_labelled` and `label_coverage`. `min_label_coverage` (default 0.0)
-and `min_labelled` (default 1), at construction or in `evaluate()`, set the minimum below which the result carries an
-`error` instead of a value. `missing_values` declares a sentinel of `y_true` / `y_pred`. Before, a single missing label
+and `min_labelled`, at construction or in `evaluate()`, set the minimum below which the result carries an `error`
+instead of a value. `min_labelled` defaults to **30 for `auc` and `aucpr`**, which also need both classes among the
+labelled rows, and to 1 for the other metrics, whose results on fewer than 30 labelled rows get `reliable=False` with a
+`reliability_reason`. In the lab (TC-04), a monthly window of 10 rows with one positive got an AUC of 0.778 without any
+warning; pass `min_labelled=1` to keep the former behaviour. `missing_values` declares a sentinel of `y_true` / `y_pred`. Before, a single missing label
 made the whole window fail (in the lab, 45 of 45 weeks with 18 % of labels missing). A result computed on part of the
 window says so in `method`, and with the default minimum of 0 a UserWarning is emitted below 50 % coverage: set
 `min_label_coverage` to refuse such windows.
@@ -272,8 +291,9 @@ particular (non-deterministic outputs, correlated requests), breaks that assumpt
 alerts without any change. On an autocorrelated stream (AR(1), phi = 0.9, windows of 200), `ks_2samp` with p < 0.05
 flagged **71 %** of A/A windows taken from the same process; with the calibrated threshold, **2 %**.
 
-`AACalibrator` draws `n_draws` pairs of windows from the reference ("A/A": same system, no change) and builds the
-distribution of each statistic without drift. It gives per-feature thresholds for the Analyzer and an empirical p-value
+`AACalibrator` draws `n_draws` windows from the reference ("A/A": same system, no change), compares each with the rest
+of the reference, as `Analyzer.run` compares a production window with the whole reference, and builds the distribution
+of each statistic without drift. It gives per-feature thresholds for the Analyzer and an empirical p-value
 for any statistic, on which `fdr_correct` applies the Benjamini-Hochberg correction across all features of a window.
 
 ```python
@@ -294,13 +314,22 @@ drift["p_empirical"] = calibrator.empirical_pvalues(drift)
 print(fdr_correct(drift, "p_empirical", alpha=0.05)[["metric_name", "feature_name", "p_adjusted", "drift_fdr"]])
 ```
 
-- `window_size` must match the production windows: the null distribution depends strongly on the sample size.
+- `window_size` must match the production windows: the null distribution depends strongly on the sample size. A
+  window more than 2x smaller or larger gets `reliable=False` with a `reliability_reason` (`options()` carries
+  `window_size`), and `empirical_pvalues()` warns: in the lab (TC-04), monthly windows of 10 to 67 rows got BH verdicts
+  with thresholds calibrated on 1,000 rows.
+- `compare_to="reference"` (default) compares each A/A window with the rest of the reference, which is what
+  `Analyzer.run` does. `compare_to="window"` compares two disjoint windows, for a monitoring that gives the Analyzer a
+  reference of one window (e.g. the previous week); it was the only mode before, and its thresholds are too lenient
+  for a comparison against a long reference: on an AR(1) stream (phi = 0.9, windows of 200, 8,000 rows) they flagged
+  under 2 % of fresh windows compared with the whole reference, against about 5 % with the default. Calibrations saved
+  before are read back as `compare_to="window"`.
 - The reference must hold **at least 10 windows**: `fit()` refuses a shorter one unless `allow_short=True` (with 3
   windows of 300 in a 1,000-row reference, the calibrated `alpha` of `ks_2samp` came out at 0.34 on independent data).
   Contiguous draws need 4 windows even then: with about 2, every draw compares nearly the same two windows (in the lab,
   1 distinct value over 30 draws and a calibrated `alpha` of 0.79).
 - Thresholds are **flagged `reliable=False`** below `reliable_windows` windows (default 30), and for a constant
-  reference or a degenerate null. `options()` passes the flag to the drift results (`reliable` column), to mark their
+  reference, a degenerate null or a saturated null. `options()` passes the flag to the drift results (`reliable` column), to mark their
   verdicts as provisional; `options(include_reliability=False)` leaves it out.
 - `contiguous=True` (default) draws contiguous windows from a time-sorted reference, keeping the temporal dependence
   of real traffic; random rows (`contiguous=False`) would hide it and under-estimate false alarms.
@@ -308,7 +337,8 @@ print(fdr_correct(drift, "p_empirical", alpha=0.05)[["metric_name", "feature_nam
 - `false_alarm_rate(metric, feature)` reports how often the nominal p < 0.05 rule fires on A/A draws: a direct measure
   of how misleading it would be on this traffic.
 - `summary()` lists, per (metric, feature), the threshold and its interval (`threshold_interval()`), the status
-  (`ok`, `constant_reference`, `degenerate_null`, `error`), the reliability and the p-value floor.
+  (`ok`, `constant_reference`, `degenerate_null`, `saturated`, `error`), the reliability, the p-value floor, the share
+  of A/A draws at the bound of the statistic (`share_at_bound`) and the `between_within_ratio` of numeric features.
 - A (metric, feature) that cannot be calibrated (e.g. a text column for `wasserstein`) is recorded in `errors` with a
   warning; the others are calibrated. The metrics' `missing_values` and `nan_policy` apply to the A/A draws.
 
@@ -336,7 +366,7 @@ calibrator = AACalibrator.load("credit_model_v1.json")
 ```
 
 Cache entries are keyed by the metric and its missing-value settings, a hash of the feature's reference values (in
-order), `window_size`, the number of draws, `contiguous` and `seed`: two models that share a reference feature share
+order), `window_size`, the number of draws, `contiguous`, `compare_to`, the level grouping and `seed`: two models that share a reference feature share
 its entry, and a changed reference never reuses a stale one. The quantile is not in the key: the threshold is
 recomputed from the stored values. With a `seed` that is not an integer, nothing is cached.
 
@@ -347,10 +377,39 @@ recomputed from the stored values. With a `seed` that is not an integer, nothing
   window pairs feed the draws. The window-level false alarm rate after BH stayed at 0 %. Use 30 windows or more, read
   `threshold_interval()`, or set `shrink_draws` (e.g. 45) to mix that many pseudo-draws of the nominal alpha into the
   calibrated alphas. Shrinking gives back part of the protection against dependence, and distances are not shrunk.
-- **Cost of the draws.** The number of draws grows with the number of tests (1,599 for 40). On numeric features the
-  statistic runs on numpy arrays, but each scipy test still costs a fraction of a millisecond: cache the calibration.
+- **Cost of the draws.** The number of draws grows with the number of tests (1,599 for 40), and with the default
+  `compare_to="reference"` each draw runs on the whole reference: on 8,000 rows, about 7 times the cost of
+  `compare_to="window"` (14.5 s against 2.0 s for 300 draws of `ks_2samp` and `wasserstein`, busy machine).
+  On numeric features the statistic runs on numpy arrays, but each scipy test still costs a fraction of a
+  millisecond: cache the calibration.
 - **Calibration is per reference.** A static reference flags lasting changes (seasons, growth) as drift, which is
   correct; choosing and refreshing the reference is up to the user.
+- **Saturated nulls are blind.** When the reference mixes regimes (e.g. a macro variable constant within each month),
+  many A/A draws already reach the bound of the statistic: the `ks_2samp` p-value underflows to 0 and `psi` reaches
+  its epsilon ceiling. A crisis window then ties with the null and is never flagged (lab TC-04: ks p = 0 in 47 % of the
+  draws, calibrated alpha 0.0; psi at 27.63 in 44 %; BH detection 0 % against 65 to 100 % for `wasserstein`). When more
+  than 5 % of the draws sit at the bound, the null gets `status="saturated"`, `reliable=False` and a warning, and the
+  drift results carry the status. It is a warning, not a fix (a strict inequality on ties turns the blindness into
+  false alarms): use `wasserstein`, which is unbounded, for such features, or a reference per regime. Ties at p = 1 are
+  on the non-critical side and do not count.
+- **Seasonal references absorb the season.** A/A draws on a whole year compare winter with summer weeks, so the
+  thresholds swallow a change of that size (lab TS-04, bike rentals +63 % in 2012: confirmed in 0 % of the weeks with
+  all of 2011 as reference, 76 % with the same weeks of 2011). `fit()` reports, per numeric feature, the
+  `between_within_ratio` (window size x variance of the window means / mean within-window variance: about 1 for
+  stationary data, (1 + phi) / (1 - phi) for AR(1) traffic) and warns above 10. Calibrate on, and compare with, the
+  same period of the reference:
+
+```python
+from pulsar_metrics.calibration import CalibrationCache, period_reference
+
+cache = CalibrationCache()
+ref = period_reference(reference, window, weeks=4)  # same weeks of the year +- 4 weeks, every year of the reference
+calibrator = AACalibrator(window_size=len(window), allow_short=True).fit(ref, monitor._metrics_list, cache=cache)
+monitor.run(current=window, reference=ref, options=calibrator.options())
+```
+
+  A period reference holds few windows (9 to 11 weeks for one year): its thresholds are flagged `reliable=False`; use
+  several years when available.
 
 ## Confirming drift over successive windows
 
@@ -501,7 +560,13 @@ interval lies entirely outside the acceptable zone**.
   and suppressed like any other: rows whose attribute is unknown are often the ones a report must not drop
   silently. Recode them beforehand to exclude them.
 - **Protected attributes do not need to travel with the predictions**: pass them separately with a pseudonymous id;
-  the join happens in memory and only group-level results come out.
+  the join happens in memory and only group-level results come out. Several attribute rows for one id without
+  `share=` / `count=` are refused with an explicit message (previously a raw pandas `MergeError`).
+- **Numeric protected attributes**: a numeric attribute with more than `numeric_levels` (20) distinct values raises
+  a warning, and the error raised when every one of its groups is suppressed suggests binning. `bins={"share": 3}`
+  bins it by quantiles (groups `Q1 [low, high]`, `Q2 (low, high]`, ...; `bins={"share": [0, 0.05, 1]}` for explicit
+  edges, groups `B1`, `B2`, ...), the edges are kept in `bin_edges` and in `method`, and `reference_groups={"share":
+  "Q1"}` names the reference by its prefix.
 
 ```python
 from pulsar_metrics.fairness import FairnessAnalyzer, FairnessPolicy
@@ -552,6 +617,38 @@ print(required_group_size(0.5, 0.5, zone=(-0.1, 0.1), reference_size=2000))  # r
 ```
 299
 ```
+
+#### Aggregate data: weights, composition tables and units
+
+`FairnessAnalyzer` assumes by default that a row is a person. When rows are units (communities, branches, schools)
+and the protected attribute is only known as a composition (the share of each group in the unit):
+
+- `weights="population"` weights every group rate and every interval by a row weight. Score intervals and the
+  binomial shortcut, which count independent rows, give way to the bootstrap.
+- a **composition table** passed as `attributes_data`, several rows per unit with the share (`share="share"`) or the
+  count of people (`count="residents"`) of each group, splits each unit's decision across its groups. With
+  `weights="population"` and shares, a group's selection rate is the share of its people who live in a flagged unit
+  (population-weighted exposure).
+- `cluster="unit_id"` resamples units, not rows, jointly across groups. `cluster` defaults to `on` with a
+  composition table. `n` and `min_group_size` then count units: **the effective sample size is the number of units**,
+  however many rows (or people) each unit has. Expanding aggregates into pseudo-individual rows without `cluster=`
+  gives intervals that shrink as 1/sqrt(copies), an arbitrary choice; a warning is raised when more than half of
+  the rows repeat another row exactly.
+- results built from a composition carry `status="ecological"`. They describe the people of each group through the
+  decisions taken on their units, not decisions taken on individuals. `unit="community"` names the unit in `method`.
+
+```python
+fairness = FairnessAnalyzer(["race"], FairnessPolicy(criteria=["demographic_parity_difference"]),
+                            reference_groups={"race": "White"}, weights="population", unit="community")
+# predictions: one row per community (cid, y_pred, population); composition: cid, race, share (several rows per cid)
+fairness.run(predictions, attributes_data=composition, on="cid", share="share")
+```
+
+On the lab data (UCI Communities and Crime, 1,994 communities, FA-03), this gives the population-weighted gap
+computed by hand in the lab: Black - White +0.376 [+0.335, +0.415] and Asian - White +0.128 [+0.048, +0.183],
+inconclusive, against the lab's cluster bootstrap [+0.334, +0.415] and [+0.044, +0.183]. On the same data expanded
+to 200,000 and 2,000,000 pseudo-individual rows, the Asian - White interval was 0.023 and 0.007 wide, with an
+"established" verdict. With `cluster="community"` it is 0.164 and 0.160 wide, and the verdict stays inconclusive.
 
 #### Known limits (night lab, FA-01 and FA-04)
 
@@ -644,7 +741,9 @@ request for authentication, a refusal), and they judge it against controls rathe
 | `counterfactual_excess_flip_rate` | flip rate minus placebo flip rate (Newcombe interval) | above `flip_tolerance` (0.05) |
 | `counterfactual_action_rate_difference` | rate of a given action in the group minus in the reference group, paired by set (BCa bootstrap); McNemar exact test, Benjamini-Hochberg over groups, in `method` | outside `rate_zone` |
 | `counterfactual_action_rate_ratio` | same rates, ratio (4/5 rule) | outside `ratio_zone` |
+| `unusable_rate` | comparative probes: share of the answers excluded from the analysis (call errors, refusals, unparsed answers), overall and per pair of groups when there are several; `method` gives the count of each kind and the sets still usable in both orders | above `max_unusable_rate` (0.5) |
 | `position_effect` | comparative probes: share of answers picking the first profile; `True` = the answers depend on the order | binomial test |
+| `comparative_instrument` | `"usable"` or `"instrument_unusable"` (also in `status`): unusable when more than `max_unusable_rate` of the answers are unusable, or when the answers depend on the order and more than `max_order_driven_share` (0.5) of the sets decided in both orders chose the same position twice | — |
 | `tie_rate`, `comparative_preference` | share of ties; probability of choosing a group, averaged over both orders | outside `preference_zone`; when the answers depend on the order, only a preference strong enough to show through is reported, never its absence |
 
 ```python
@@ -685,7 +784,19 @@ counterfactual_action_rate_ratio       name=maghreb  +4.632 [+3.185, +7.250] Tru
 default is 2.5 % per side). Inconclusive results end their `method` with the number of probe sets needed for an
 80 % chance of a verdict at the observed rates (`paired_sets_needed`, `flip_sets_needed`).
 
-#### Known limits (night lab, FA-04 and LB-01)
+An answer is unusable when its call failed (`error`), when `choice` is `"refusal"` or when `choice` is missing or
+holds anything other than `"first"`, `"second"` or `"tie"` (unparsed). Unusable answers are excluded from
+`position_effect`, `tie_rate` and the preferences, and reported in `unusable_rate`. With an unusable instrument,
+the preferences carry `status="instrument_unusable"`: an established preference is kept, but no verdict of absence
+is given.
+
+#### Known limits (night lab, FA-04, LB-01 and LB-02)
+
+- **The comparative probe answers the position, not the profiles, on small local models** (LB-02, French
+  CrowS-Pairs, 6 models): the share of "first" answers ranged from 0.028 to 0.991. `comparative_instrument` flags all
+  6 as unusable: 58 % (ministral-3:8b) to 98 % (llama3.1:8b) of the sets decided in both orders chose the same
+  position twice. llama3.2:3b refused 23.3 % of its answers (326 of 1,400, all unparsed). Before, they were dropped
+  silently; `unusable_rate` now reports them, with 513 of 700 sets usable in both orders.
 
 - **30 probe sets rarely certify anything**: without any bias, the action rate difference was "within the zone"
   (+-0.1) in 10 % of runs at 30 sets, 79 % at 60 and 97 % at 100. With no discordant set at all, the bound on the
@@ -724,7 +835,7 @@ print(monitor.violations(trace_from("search_programs>create_file>authenticate"))
 ```
 
 LTLf operators: `!`, `&`, `|`, `->`, `X` (strong next), `F` (eventually), `G` (always), `U` (until); atoms are event
-names (the tools called, in order, as in the `tool_sequence` field of the agent records).
+names (the tools called, in order, as in the `tool_sequence` field of the agent records), or atoms with predicates over a rich trace (below).
 
 - **Per-run alerts**: `monitor.alerts(trace)` returns the violated rules of severity `critical` (or
   `min_severity=...`), most severe first, each with the rules version: one run that creates a file before
@@ -742,6 +853,60 @@ print([a["rule_id"] for a in monitor.alerts(trace_from("search_programs>create_f
 ```
 ['auth-before-file']
 ```
+
+#### Rules over arguments, statuses and conversation events
+
+A trace is a list of names (`trace_from`) or a **rich trace**: a list of mappings
+`{"name": ..., "kind": "tool" | "event", "args": {...}, "status": "ok" | "error" | "timeout" | "soft_failure"}`, with
+the conversation events (e.g. `user_confirmation`) in time order among the tool calls. `ComplianceMonitor` declares
+`accepts_rich_trace = True`, so the trajectory collector of pulsar-data-collection passes it rich traces. A plain atom
+matches an element by its name, on both forms; atom predicates read the rest of a rich element:
+
+| Atom | Matches |
+|---|---|
+| `cancel_pending_order` | an element of that name (tool or event), as before |
+| `cancel_pending_order[order_id=#W1]` | that tool with the argument equal to the value (values compared as text: `42` matches `42` and `"42"`; quote values with spaces or commas: `[reason='no longer needed']`) |
+| `cancel_pending_order[order_id]` | that tool with the argument present |
+| `cancel_pending_order[reason!=other, order_id]` | conditions joined by commas, all required; `!=` also matches when the call has arguments but not that one (a missing `reason` is not `other`) |
+| `get_order_details[status=error]` | that tool with that status (`status` and `kind` are element fields; `args.status=...` reads an argument named status) |
+| `@user_confirmation` | an **event** of that name (never a tool) |
+| `*[status=error]`, `@*` | any tool with that status, any event |
+
+Templates take a list of atoms for "any of them" (`events: ["@user_confirmation", [cancel_pending_order,
+modify_pending_order_address]]`) and two new templates: `alternate_precedence` (each b preceded by an a since the
+previous b: a confirmation before every write) and `alternate_response` (each a followed by a b before the next a).
+`bind` restricts every tool atom to one value of the named arguments at a time, the rule holding for each value (events
+are never bound: a plain atom still matches an event of its name). A rule with `@` atoms needs a collector that records
+those events (`record_event`): a rich trace cannot tell "no confirmation happened" from "confirmations are not
+recorded", and the rule then reports violations:
+
+```yaml
+rules:
+  - id: status-checked            # an order is looked up before it is changed (the same order)
+    template: precedence
+    events: [get_order_details, [cancel_pending_order, modify_pending_order_address]]
+    bind: [order_id]
+    severity: major
+  - id: confirm-before-write      # a user confirmation since the last write, before each write
+    template: alternate_precedence
+    events: ["@user_confirmation", [cancel_pending_order, modify_pending_order_address]]
+    severity: critical
+```
+
+A rule sees the tool calls and only the events it names, so the rules over tool names give the same verdict on a rich
+trace as on its tool sequence (an `agent_msg` event between two calls does not break `X` or `chain_response`).
+
+**Not evaluable.** A rule that reads arguments, statuses or events (`Rule.needs_rich_trace`: a predicate, an `@`
+atom or `bind`) cannot be judged on a name-only trace (`trace_from` returns a `NameTrace`; a non-empty list of
+strings counts as one too), nor when the elements it depends on lack the data (a tool without `args`, a bound tool
+without the bound argument; three-valued logic, so known elements still decide when they can). Such a rule is
+reported, never counted as a violation or a pass: `Rule.verdict` returns None and `Rule.check` raises
+`RuleNotEvaluable`; `monitor.not_evaluable(trace)` lists them; `violations` and `alerts` leave them out with a
+`NotEvaluableWarning`; `run_record` adds `not_evaluable_rules` (only then); `evaluate` counts per rule the runs it
+was judged on (`n`, the method says how many were not) and gives `status="not_evaluable"`, `metric_value` and
+`drift_status` None to a rule judged on no run. On the synthetic replica of LA-02 (40 retail runs, 36 with a write),
+the confirmation rule over tool names flags all 36; with `@user_confirmation` on the rich traces it flags the 23 real
+violations, and on the name-only traces it is not evaluable on all 40.
 
 #### Known limits (night lab, TX-02, IM-02, LM-01, LI-03 and LS-01)
 

@@ -16,6 +16,10 @@ from .enums import PerformanceMetricsFuncs
 
 NO_GROUND_TRUTH = "Dataset has no ground truth for performance assessment"
 LOW_COVERAGE = 0.5  # below, with no minimum set, a warning says the verdict rests on few labelled rows
+# below, a metric on so few labelled rows is noise (lab TC-04: AUC 0.778 on 10 rows with 1 positive): auc / aucpr give
+# no value nor verdict by default, the other metrics are flagged reliable=False
+MIN_LABELLED = 30
+TWO_CLASS_METRICS = ("auc", "aucpr")  # ranking metrics, undefined or meaningless unless both classes are labelled
 
 
 class PerformanceMetric(AbstractMetrics):
@@ -30,7 +34,9 @@ class PerformanceMetric(AbstractMetrics):
             y_name, pred_name : columns of the ground truth and the prediction (default "y_true", "y_pred")
             missing_values : sentinel value(s) of y_name and pred_name meaning "no value", turned into NaN
             min_label_coverage : minimum share of rows with ground truth (default 0.0: any labelled row is enough)
-            min_labelled : minimum number of labelled rows (default 1)
+            min_labelled : minimum number of labelled rows; below it the result carries an `error` (default 30,
+                MIN_LABELLED, for auc and aucpr, which also need both classes; 1 for the other metrics, whose results
+                on fewer than 30 labelled rows are flagged reliable=False)
 
         Raises
         ------
@@ -46,7 +52,7 @@ class PerformanceMetric(AbstractMetrics):
         self._pred_name = kwargs.get("pred_name", "y_pred")
         self._missing_values = normalize_missing_values(kwargs.get("missing_values"))
         self._min_label_coverage = kwargs.get("min_label_coverage", 0.0)
-        self._min_labelled = kwargs.get("min_labelled", 1)
+        self._min_labelled = kwargs.get("min_labelled", MIN_LABELLED if metric_name in TWO_CLASS_METRICS else 1)
 
     def _check_metrics_name(self, metric_name: str):
         if metric_name not in PerformanceMetricsFuncs._member_names_:
@@ -95,7 +101,9 @@ class PerformanceMetric(AbstractMetrics):
             Minimum share of rows with both ground truth and prediction; below it the result carries an `error` and no
             value or verdict. Defaults to the value given at construction (0.0).
         min_labelled : int, optional
-            Minimum number of such rows (default from the construction, 1)
+            Minimum number of such rows (default from the construction: 30 for auc and aucpr, 1 otherwise). auc and
+            aucpr also need both classes among them, otherwise the result carries an `error` and no value or verdict.
+            Any metric evaluated on fewer than 30 labelled rows gets reliable=False and a reliability_reason.
         kwargs :
             keyworded variable length of arguments to a function
 
@@ -135,6 +143,20 @@ class PerformanceMetric(AbstractMetrics):
                     **coverage_fields,
                 )
                 return self._result
+            if self._name in TWO_CLASS_METRICS:
+                classes = pd.unique(y_true[labelled])
+                if len(classes) < 2:
+                    self._result = MetricResults(
+                        error=(
+                            f"{self._name} needs both classes in the labelled rows: {n_labelled} labelled rows, all of "
+                            f"class {classes[0]!r}"
+                        ),
+                        **coverage_fields,
+                    )
+                    return self._result
+            if n_labelled < MIN_LABELLED:
+                coverage_fields["reliable"] = False
+                coverage_fields["reliability_reason"] = f"{n_labelled} labelled rows, fewer than {MIN_LABELLED}"
             if n_labelled < n_rows:
                 coverage_fields["method"] = f"labelled rows only: {n_labelled} of {n_rows} (coverage {coverage:.1%})"
                 if min_label_coverage == 0 and coverage < LOW_COVERAGE:

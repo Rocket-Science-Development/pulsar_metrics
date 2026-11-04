@@ -206,10 +206,16 @@ def test_m4_constant_reference_has_its_own_status():
 def test_m5_short_reference_thresholds_come_with_an_interval_and_a_flag():
     rng = np.random.default_rng(10)
     with quiet():
-        short = AACalibrator(window_size=100).fit(frame(x=rng.normal(size=1000)), [DriftTestMetric("ks_2samp", "x")])
-        long = AACalibrator(window_size=100).fit(frame(x=rng.normal(size=4000)), [DriftTestMetric("ks_2samp", "x")])
+        short = AACalibrator(window_size=100, compare_to="window").fit(
+            frame(x=rng.normal(size=1000)), [DriftTestMetric("ks_2samp", "x")]
+        )
+        long = AACalibrator(window_size=100, compare_to="window").fit(
+            frame(x=rng.normal(size=4000)), [DriftTestMetric("ks_2samp", "x")]
+        )
+        by_reference = AACalibrator(window_size=100).fit(frame(x=rng.normal(size=1000)), [DriftTestMetric("ks_2samp", "x")])
     short_null, long_null = short.nulls[("ks_2samp", "x")], long.nulls[("ks_2samp", "x")]
     assert short_null.n_effective == 45  # 10 windows: about 45 disjoint pairs, as computed by the lab
+    assert by_reference.nulls[("ks_2samp", "x")].n_effective == 10  # one window against the rest: 10 windows
     low, high = short_null.threshold_interval()
     assert low <= short_null.threshold <= high
     assert high - low > np.subtract(*long_null.threshold_interval()[::-1])
@@ -233,9 +239,13 @@ def test_m3_contiguous_draws_need_four_windows_and_sample_without_rejection():
     reference = frame(x=np.random.default_rng(11).normal(size=400))
     with pytest.raises(error_msg, match="at least 4 windows"):
         AACalibrator(window_size=200, allow_short=True).fit(reference, [DriftTestMetric("ks_2samp", "x")])
-    cal = AACalibrator(window_size=100, allow_short=True)
+    cal = AACalibrator(window_size=100, allow_short=True, compare_to="window")
     draws = cal._draw_positions(400, 500, np.random.default_rng(0))
     assert all(abs(a.start - b.start) >= 100 and b.stop <= 400 for a, b in draws)  # disjoint, inside the reference
+    cal = AACalibrator(window_size=100, allow_short=True)  # window against the rest of the reference
+    draws = cal._draw_positions(400, 500, np.random.default_rng(0))
+    assert all(b is None and 0 <= a.start and a.stop <= 400 for a, b in draws)
+    assert len(cal._rest(draws[0][0], 400)) == 300
 
 
 # ---------------------------------------------------------------- m16: reference read back from a CSV
@@ -306,11 +316,15 @@ def test_binned_metrics_do_not_depend_on_the_integer_or_float_dtype():
 
 def test_calibration_fast_path_matches_production_on_integer_features():
     reference = frame(x=np.random.default_rng(0).integers(0, 5, 6000))
-    for metric in (DriftMetric("psi", "x"), DriftTestMetric("chi2", "x")):
-        cal = AACalibrator(window_size=200, n_draws=60, fdr_alpha=None).fit(reference, [metric])
-        draws = cal._draw_positions(len(reference), cal.n_draws_used, np.random.default_rng(0))
-        production = [metric.evaluate(reference.iloc[a], reference.iloc[b]).metric_value for a, b in draws]
-        np.testing.assert_allclose(cal.nulls[(metric._name, "x")].values, production, rtol=1e-12)
+    for compare_to in ("reference", "window"):
+        for metric in (DriftMetric("psi", "x"), DriftTestMetric("chi2", "x")):
+            cal = AACalibrator(window_size=200, n_draws=60, fdr_alpha=None, compare_to=compare_to).fit(reference, [metric])
+            draws = cal._draw_positions(len(reference), cal.n_draws_used, np.random.default_rng(0))
+            production = [
+                metric.evaluate(reference.iloc[a], reference.iloc[cal._rest(a, len(reference)) if b is None else b]).metric_value
+                for a, b in draws
+            ]
+            np.testing.assert_allclose(cal.nulls[(metric._name, "x")].values, production, rtol=1e-12)
 
 
 # ---------------------------------------------------------------- review: distinct versions are not merged

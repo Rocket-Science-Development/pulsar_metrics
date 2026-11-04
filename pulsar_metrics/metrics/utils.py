@@ -2,6 +2,7 @@
 #  SPDX-License-Identifier: Apache-2.0
 
 from types import SimpleNamespace
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,10 @@ from scipy.stats import chi2_contingency, fisher_exact
 from sklearn.metrics.pairwise import pairwise_kernels
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+
+EPSILON = 1e-6  # additive smoothing of kl_divergence and population_stability_index
+LOW_EXPECTED = 5  # a contingency cell with an expected count below it makes the chi2 approximation unreliable (Cochran)
+OTHER_LEVEL = "__other__"  # level that gathers the levels merged by group_levels
 
 
 def _as_float(series: pd.Series) -> pd.Series:
@@ -68,7 +73,9 @@ def get_population_percentages(new: pd.Series, reference: pd.Series, binned: boo
     return percents
 
 
-def get_population_counts(new: pd.Series, reference: pd.Series) -> pd.DataFrame:
+def get_population_counts(
+    new: pd.Series, reference: pd.Series, min_expected: Optional[float] = None, max_levels: Optional[int] = None
+) -> pd.DataFrame:
     """Return the counts of the two pandas series per category, or per shared bin for numeric series
 
     Parameters
@@ -77,6 +84,8 @@ def get_population_counts(new: pd.Series, reference: pd.Series) -> pd.DataFrame:
         The input pandas Series of the new population
     reference : pd.Series
         The input pandas Series of the reference population
+    min_expected, max_levels : optional
+        Level grouping, see group_levels (default None: every category or bin is kept)
 
     Raises
     ------
@@ -99,10 +108,78 @@ def get_population_counts(new: pd.Series, reference: pd.Series) -> pd.DataFrame:
         new = pd.cut(new, bins, include_lowest=True)
     counts = pd.concat([reference.value_counts(sort=False), new.value_counts(sort=False)], axis=1, keys=["ref", "new"])
     counts = counts.fillna(0)
-    return counts.loc[counts.sum(axis=1) > 0]
+    counts = counts.loc[counts.sum(axis=1) > 0]
+    return group_levels(counts, min_expected=min_expected, max_levels=max_levels)
 
 
-def kl_divergence(new: pd.Series, reference: pd.Series, epsilon: float = 1e-6) -> float:
+def group_levels(counts: pd.DataFrame, min_expected: Optional[float] = None, max_levels: Optional[int] = None) -> pd.DataFrame:
+    """Merge the sparse levels of a count table into one "other" level, chosen on the reference proportions
+
+    With hundreds of levels (airports, products...), most cells of the 2 x k table are nearly empty: chi2 spends its
+    degrees of freedom on them and loses power, and psi / kl add noise (lab TC-02, 293 levels: power 0.05 raw vs 0.275
+    grouped at 2000 rows). The levels to merge depend only on the reference proportions and on the size of the current
+    sample, so the same levels are merged in the current window and in every A/A draw of a calibration. Levels absent
+    from the reference (new categories) are merged too: they still weigh in "other", where a new category shows as a
+    large current share against a small reference one.
+
+    Parameters
+    ----------
+    counts : pd.DataFrame
+        Table from get_population_counts (columns "ref" and "new")
+    min_expected : float, optional
+        Merge the levels whose expected count in the current sample, n_new x reference share, is below it (5 is the
+        usual chi2 rule)
+    max_levels : int, optional
+        Keep at most this many levels, "other" included: the max_levels - 1 most frequent in the reference
+
+    Returns
+    -------
+    pd.DataFrame
+        the table with the merged levels summed into OTHER_LEVEL; unchanged when nothing is merged. The most frequent
+        reference level is never merged, so that two levels at least remain.
+    """
+    if min_expected is None and max_levels is None:
+        return counts
+    if max_levels is not None and max_levels < 2:
+        raise error_msg(value=max_levels, message="max_levels must be at least 2 (one level and 'other')")
+    ref_total, new_total = counts["ref"].sum(), counts["new"].sum()
+    if ref_total == 0 or len(counts) < 2:
+        return counts
+    shares = counts["ref"] / ref_total
+    merged = pd.Series(False, index=counts.index)
+    if min_expected is not None:
+        merged |= new_total * shares < min_expected
+    if max_levels is not None:
+        merged |= shares.rank(method="first", ascending=False) > max_levels - 1
+    merged.loc[shares.idxmax()] = False
+    if not merged.any():
+        return counts
+    kept = counts.loc[~merged]
+    kept.index = kept.index.astype(object)
+    other = pd.DataFrame([counts.loc[merged].sum()], index=[OTHER_LEVEL])
+    return pd.concat([kept, other])
+
+
+def low_expected_share(counts: pd.DataFrame, min_expected: float = LOW_EXPECTED) -> Optional[float]:
+    """Share of the cells of the 2 x k table whose expected count (row total x column total / n) is below min_expected
+
+    Above 0.2, the chi2 approximation is commonly considered unreliable and psi / kl are dominated by sparse levels:
+    group them (min_expected= or max_levels= of the drift metric).
+    """
+    total = counts.to_numpy().sum()
+    if total == 0 or len(counts) == 0:
+        return None
+    expected = np.outer(counts.sum(axis=1).to_numpy(), counts.sum(axis=0).to_numpy()) / total
+    return float((expected < min_expected).mean())
+
+
+def kl_divergence(
+    new: pd.Series,
+    reference: pd.Series,
+    epsilon: float = EPSILON,
+    min_expected: Optional[float] = None,
+    max_levels: Optional[int] = None,
+) -> float:
     """Calculate the Kullback-Leibler divergence D_KL(new || reference) between two samples
 
     Both samples are binned on shared bins (numeric) or counted per category, then turned into
@@ -117,19 +194,23 @@ def kl_divergence(new: pd.Series, reference: pd.Series, epsilon: float = 1e-6) -
         The input pandas Series of the reference population
     epsilon : float, optional
         Additive smoothing applied to the probabilities
+    min_expected, max_levels : optional
+        Level grouping, see group_levels (default None: none)
 
     Returns
     -------
     float
         returns the KL divergence, zero when the two distributions are identical
     """
-    counts = get_population_counts(new, reference)
+    counts = get_population_counts(new, reference, min_expected=min_expected, max_levels=max_levels)
     p = counts["new"] / counts["new"].sum() + epsilon
     q = counts["ref"] / counts["ref"].sum() + epsilon
     return float(rel_entr(p / p.sum(), q / q.sum()).sum())
 
 
-def chi2_test(new: pd.Series, reference: pd.Series, **kwargs):
+def chi2_test(
+    new: pd.Series, reference: pd.Series, min_expected: Optional[float] = None, max_levels: Optional[int] = None, **kwargs
+):
     """Chi-squared test of homogeneity between the distributions of two samples
 
     Builds the 2 x k contingency table of counts (per category, or per shared bin for numeric series)
@@ -141,6 +222,8 @@ def chi2_test(new: pd.Series, reference: pd.Series, **kwargs):
         The input pandas Series of the new population
     reference : pd.Series
         The input pandas Series of the reference population
+    min_expected, max_levels : optional
+        Level grouping, see group_levels (default None: none). With many sparse levels, min_expected=5 restores power.
     kwargs :
         keyworded variable length of arguments passed to scipy.stats.chi2_contingency
 
@@ -149,7 +232,7 @@ def chi2_test(new: pd.Series, reference: pd.Series, **kwargs):
     scipy.stats.contingency.Chi2ContingencyResult
         test result exposing statistic and pvalue
     """
-    counts = get_population_counts(new, reference)
+    counts = get_population_counts(new, reference, min_expected=min_expected, max_levels=max_levels)
     return chi2_contingency(counts.T.to_numpy(), **kwargs)
 
 
@@ -185,7 +268,14 @@ def missing_rate_test(new, reference):
     return fisher_exact([[new_missing, new_present], [ref_missing, ref_present]])
 
 
-def population_stability_index(new: pd.Series, reference: pd.Series, binned: bool = False, epsilon: float = 1e-6):
+def population_stability_index(
+    new: pd.Series,
+    reference: pd.Series,
+    binned: bool = False,
+    epsilon: float = EPSILON,
+    min_expected: Optional[float] = None,
+    max_levels: Optional[int] = None,
+):
     """Calculate the Population Stability Index (PSI) between two samples
 
     PSI = sum((p_new - p_ref) * ln(p_new / p_ref)) over shared bins (numeric) or categories. `epsilon` is
@@ -202,7 +292,10 @@ def population_stability_index(new: pd.Series, reference: pd.Series, binned: boo
         if the population values have already been binned into identical bins, i.e. the two series hold
         counts indexed by bin. Bins missing from one series count zero.
     epsilon : float, optional
-        Additive smoothing applied to the proportions
+        Additive smoothing applied to the proportions. It also caps the value: two samples without any shared bin give
+        about 2 ln(1 / epsilon) = 27.6, however large the shift.
+    min_expected, max_levels : optional
+        Level grouping, see group_levels (default None: none)
 
     Returns
     -------
@@ -211,8 +304,9 @@ def population_stability_index(new: pd.Series, reference: pd.Series, binned: boo
     """
     if binned:
         counts = pd.concat([reference, new], axis=1, keys=["ref", "new"]).fillna(0)
+        counts = group_levels(counts, min_expected=min_expected, max_levels=max_levels)
     else:
-        counts = get_population_counts(new, reference)
+        counts = get_population_counts(new, reference, min_expected=min_expected, max_levels=max_levels)
     p = counts["new"] / counts["new"].sum() + epsilon
     q = counts["ref"] / counts["ref"].sum() + epsilon
     p, q = p / p.sum(), q / q.sum()

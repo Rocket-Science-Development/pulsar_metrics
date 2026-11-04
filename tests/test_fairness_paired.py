@@ -135,3 +135,39 @@ def test_no_discordant_set_gives_a_bounded_interval_not_zero_width():
     difference = get(counterfactual_analysis(rows, "fr", action="authenticate"), "counterfactual_action_rate_difference")[0]
     assert difference.metric_value == 0 and difference.ci_low < -0.04 and difference.ci_high > 0.04
     assert difference.drift_status is False  # within the default zone [-0.1, 0.1]
+
+
+def test_unusable_answers_are_reported_not_dropped_silently():
+    # 20 % unparsed answers (choice None), 10 % refusals: excluded from the analysis, counted in unusable_rate
+    rows = comparative_rows(300, p_first=0.0, p_prefer_a=0.5, seed=3)
+    rng = np.random.default_rng(3)
+    draw = rng.random(len(rows))
+    rows.loc[draw < 0.2, "choice"] = None
+    rows.loc[(draw >= 0.2) & (draw < 0.3), "choice"] = "refusal"
+    rows.loc[rows["choice"].isin([None, "refusal"]) | rows["choice"].isna(), "chosen_group"] = None
+    results = comparative_analysis(rows)
+    unusable = get(results, "unusable_rate")[0]
+    excluded = int(rows["choice"].isna().sum() + (rows["choice"] == "refusal").sum())
+    assert unusable.metric_value == pytest.approx(excluded / len(rows)) and unusable.n == len(rows)
+    assert f"{int((rows['choice'] == 'refusal').sum())} refusal" in unusable.method
+    assert "sets usable in both orders" in unusable.method
+    assert unusable.drift_status is False  # under max_unusable_rate (0.5)
+    # refusals are not decisions: the position effect only counts first / second
+    assert get(results, "position_effect")[0].n == int(rows["choice"].isin(["first", "second"]).sum())
+    assert get(results, "comparative_instrument")[0].status == "usable"
+
+
+def test_order_driven_or_unusable_instrument_gets_an_explicit_status():
+    order_only = comparative_rows(60, p_first=0.0, p_prefer_a=0.5).assign(choice="second")
+    order_only["chosen_group"] = order_only["second_group"]
+    results = comparative_analysis(order_only)
+    instrument = get(results, "comparative_instrument")[0]
+    assert instrument.metric_value == "instrument_unusable" and "same position twice" in instrument.method
+    preference = get(results, "comparative_preference")[0]
+    assert preference.status == "instrument_unusable" and preference.drift_status is None
+    # mostly refused: unusable as well, and no exception when nothing is usable
+    refused = comparative_rows(60, p_first=0.0, p_prefer_a=0.8).assign(choice="refusal")
+    results = comparative_analysis(refused)
+    assert get(results, "unusable_rate")[0].metric_value == 1 and get(results, "unusable_rate")[0].drift_status is True
+    assert get(results, "comparative_instrument")[0].status == "instrument_unusable"
+    assert not get(results, "comparative_preference")
