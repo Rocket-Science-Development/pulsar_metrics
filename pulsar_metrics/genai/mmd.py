@@ -92,7 +92,7 @@ def _mmd2_many(K: np.ndarray, W: np.ndarray, row_sums: np.ndarray, trace: float)
     With w a label column: sum_xx = w'Kw, sum_xy = w'K1 - w'Kw, sum_yy = 1'K1 - sum_xx - 2 sum_xy; the diagonal is
     removed from the within-window sums. No copy of K per permutation (the former np.ix_ indexing copied it)."""
     diag = np.diag(K)
-    n = W[:, 0].sum()
+    n = W.sum(axis=0)  # per column: with groups, the number of reference rows varies between permutations
     m = len(W) - n
     KW = K @ W
     sxx = np.einsum("ij,ij->j", W, KW)
@@ -113,6 +113,38 @@ def _permutation_labels(labels: np.ndarray, n_permutations: int, rng):
         done += size
 
 
+def _check_groups(groups, x: np.ndarray, y: np.ndarray):
+    """Group codes of the reference and current rows: (reference_groups, current_groups), one label per row. Labels are
+    read within each window (the same label in both windows names two groups)."""
+    if not isinstance(groups, (tuple, list)) or len(groups) != 2:
+        raise error_msg(value=None, message="groups must be a pair (reference_groups, current_groups)")
+    gx, gy = np.asarray(groups[0]), np.asarray(groups[1])
+    if gx.shape != (len(x),) or gy.shape != (len(y),):
+        raise error_msg(value=None, message="groups must give one label per row of reference and of current")
+    _, cx = np.unique(gx, return_inverse=True)
+    _, cy = np.unique(gy, return_inverse=True)
+    return cx, cy
+
+
+def _subsample_groups(x, codes, max_samples, rng):
+    """Whole groups drawn at random until the window holds at most max_samples rows (at least one group)"""
+    if max_samples is None or len(x) <= max_samples:
+        return x, codes
+    sizes = np.bincount(codes)
+    order = rng.permutation(len(sizes))
+    keep = order[: max(1, int(np.searchsorted(np.cumsum(sizes[order]), max_samples, side="right")))]
+    mask = np.isin(codes, keep)
+    return x[mask], np.unique(codes[mask], return_inverse=True)[1]
+
+
+def _group_permutation_labels(codes: np.ndarray, n_reference_groups: int, n_permutations: int, rng):
+    """Yield blocks of row labels obtained by permuting whole groups between the windows"""
+    group_labels = np.zeros(codes.max() + 1, dtype=bool)
+    group_labels[:n_reference_groups] = True
+    for block in _permutation_labels(group_labels, n_permutations, rng):
+        yield block[codes]
+
+
 def mmd_test(
     reference,
     current,
@@ -122,6 +154,7 @@ def mmd_test(
     max_samples: int = 1000,
     seed: Optional[int] = 0,
     bandwidth: Optional[float] = None,
+    groups: Optional[tuple] = None,
 ) -> MMDResult:
     """Permutation test of H0: the reference and current embeddings come from the same distribution
 
@@ -141,10 +174,26 @@ def mmd_test(
         Each window is subsampled to at most this many rows (the kernel matrix is quadratic)
     bandwidth : float, optional
         Unit of the kernel widths (default: the median pairwise distance of the pooled windows)
+    groups : pair of sequences, optional
+        (reference_groups, current_groups): one label per row, rows of the same label forming one unit (e.g. the
+        passages retrieved by one agent run). The permutations then move whole groups between the windows, and the
+        subsampling keeps or drops whole groups. Needed when the rows of a unit are correlated: the passages of one
+        run (top k of the same query, often the same article) are, and permuting them as independent rows gave 42 to
+        44 % false alarms instead of 5 % in the lab (LR-03, windows of 100 runs). Default None: rows are the units.
+        The alternative is one row per unit (e.g. the top passage of each run).
     """
     rng = np.random.default_rng(seed)
     x, y = _check(reference, current)
-    x, y = _subsample(x, y, max_samples, rng)
+    if groups is not None:
+        cx, cy = _check_groups(groups, x, y)
+        x, cx = _subsample_groups(x, cx, max_samples, rng)
+        y, cy = _subsample_groups(y, cy, max_samples, rng)
+        n_reference_groups = int(cx.max()) + 1
+        codes = np.concatenate([cx, cy + n_reference_groups])
+        if n_reference_groups < 2 or cy.max() + 1 < 2:
+            raise error_msg(value=None, message="at least 2 groups are needed in each window")
+    else:
+        x, y = _subsample(x, y, max_samples, rng)
     x, y = _project(x, y, n_components)
     z = np.vstack([x, y])
     sq = np.sum(z * z, axis=1)
@@ -160,8 +209,12 @@ def mmd_test(
     labels[: len(x)] = True
     row_sums, trace = K.sum(axis=1), float(np.trace(K))
     observed = float(_mmd2_many(K, labels[:, None].astype(float), row_sums, trace)[0])
+    if groups is not None:
+        blocks = _group_permutation_labels(codes, n_reference_groups, n_permutations, rng)
+    else:
+        blocks = _permutation_labels(labels, n_permutations, rng)
     exceed = 0
-    for block in _permutation_labels(labels, n_permutations, rng):
+    for block in blocks:
         exceed += int(np.sum(_mmd2_many(K, block.astype(float), row_sums, trace) >= observed))
     return MMDResult(observed, (exceed + 1) / (n_permutations + 1), len(x), len(y), median)
 
@@ -416,7 +469,8 @@ def embedding_drift(
 
     test : "mmd" (default; metric_type "drift", metric_name "mmd"), "component" (`component_test`, metric_name
     "embedding_mean_shift") or "novelty" (`novelty_test`, metric_name "embedding_novelty", metric_value = share of
-    novel texts).
+    novel texts). Other keyword arguments go to the test, e.g. groups=(reference_groups, current_groups) for "mmd" when
+    several rows come from one unit (the passages of one agent run), see `mmd_test`.
     """
     if test == "component":
         r = component_test(reference, current, **kwargs)
