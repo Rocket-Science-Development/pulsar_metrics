@@ -1,0 +1,900 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Rocket-Science-Development/pulsar_metrics/schemas/evidence-1.json",
+  "$defs": {
+    "Calibration": {
+      "description": "Where the threshold comes from",
+      "properties": {
+        "method": {
+          "default": "none",
+          "description": "aa_calibration: quantile of A/A draws (AACalibrator); nominal: given value; none: no threshold",
+          "enum": [
+            "aa_calibration",
+            "nominal",
+            "none"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "null_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Status of the calibrated null: ok, constant_reference, degenerate_null, saturated",
+          "title": "Null Status"
+        },
+        "window_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Window size the threshold was calibrated for",
+          "title": "Window Size"
+        },
+        "quantile": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Quantile of the A/A distribution used as threshold",
+          "title": "Quantile"
+        },
+        "n_reference_windows": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reference rows / window_size",
+          "title": "N Reference Windows"
+        },
+        "n_draws": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A/A draws behind the null distribution",
+          "title": "N Draws"
+        },
+        "n_effective_draws": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Draws carrying independent information",
+          "title": "N Effective Draws"
+        },
+        "share_at_bound": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share of A/A draws at the bound of the statistic",
+          "title": "Share At Bound"
+        },
+        "threshold_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lower bound of the 90 % interval of the calibrated threshold",
+          "title": "Threshold Low"
+        },
+        "threshold_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upper bound of the 90 % interval of the calibrated threshold",
+          "title": "Threshold High"
+        },
+        "empirical_p_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share of A/A draws at least as extreme as the value",
+          "title": "Empirical P Value"
+        },
+        "p_value_floor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Smallest empirical p-value the null can give",
+          "title": "P Value Floor"
+        }
+      },
+      "required": [
+        "method",
+        "null_status",
+        "window_size",
+        "quantile",
+        "n_reference_windows",
+        "n_draws",
+        "n_effective_draws",
+        "share_at_bound",
+        "threshold_low",
+        "threshold_high",
+        "empirical_p_value",
+        "p_value_floor"
+      ],
+      "title": "Calibration",
+      "type": "object"
+    },
+    "Metric": {
+      "description": "What was measured and the verdict",
+      "properties": {
+        "family": {
+          "description": "Kind of finding: drift, performance, fairness, genai, compliance, data_quality, ...",
+          "enum": [
+            "drift",
+            "performance",
+            "fairness",
+            "genai",
+            "compliance",
+            "data_quality",
+            "explainability",
+            "custom"
+          ],
+          "title": "Family",
+          "type": "string"
+        },
+        "name": {
+          "description": "Metric name, e.g. ks_2samp, psi, accuracy, disparate_impact_ratio, mmd, rule_compliance",
+          "title": "Name",
+          "type": "string"
+        },
+        "feature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Feature, model output or rule id the metric is about (None: whole frame)",
+          "title": "Feature"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fairness: group label, e.g. 'sex=F' or 'sex=F|region=North'",
+          "title": "Group"
+        },
+        "reference_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fairness: group the group is compared with",
+          "title": "Reference Group"
+        },
+        "subject_metric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metric this one is about, e.g. the fairness criterion of a no_verdict_share coverage record",
+          "title": "Subject Metric"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Value of the metric (p-value for statistical tests)",
+          "title": "Value"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Threshold or alpha; [low, high] for an acceptable zone. None: no threshold",
+          "title": "Threshold"
+        },
+        "direction": {
+          "default": "none",
+          "description": "upper: alert above the threshold; lower: alert below it; outside: alert outside [low, high]; none: no threshold",
+          "enum": [
+            "upper",
+            "lower",
+            "outside",
+            "none"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "decision_basis": {
+          "default": "none",
+          "description": "What the threshold is compared with: value, p_value, confidence_interval (the interval must lie beyond the threshold), reference_test (test against the reference period), sequential_test (anytime-valid)",
+          "enum": [
+            "value",
+            "p_value",
+            "confidence_interval",
+            "reference_test",
+            "sequential_test",
+            "none"
+          ],
+          "title": "Decision Basis",
+          "type": "string"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "p-value of the test, when there is one (BH-adjusted for compliance)",
+          "title": "P Value"
+        },
+        "ci_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lower bound of the confidence interval of the value",
+          "title": "Ci Low"
+        },
+        "ci_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upper bound of the confidence interval of the value",
+          "title": "Ci High"
+        },
+        "e_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sequential tests: e-value (evidence against no disparity)",
+          "title": "E Value"
+        },
+        "n": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rows, units or runs behind the value",
+          "title": "N"
+        },
+        "status": {
+          "description": "ok: no drift / degradation; alert: drift, degradation or violation detected; no_verdict: value without verdict (no threshold, inconclusive); not_evaluable: the data does not allow a value; error: failed",
+          "enum": [
+            "ok",
+            "alert",
+            "no_verdict",
+            "not_evaluable",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why the value or the verdict is missing",
+          "title": "Error"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the value and its interval were obtained (human-readable)",
+          "title": "Method"
+        }
+      },
+      "required": [
+        "family",
+        "name",
+        "feature",
+        "group",
+        "reference_group",
+        "subject_metric",
+        "value",
+        "threshold",
+        "direction",
+        "decision_basis",
+        "p_value",
+        "ci_low",
+        "ci_high",
+        "e_value",
+        "n",
+        "status",
+        "error",
+        "method"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "Persistence": {
+      "description": "Verdict over consecutive windows (DriftPersistence)",
+      "properties": {
+        "windows": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Consecutive windows needed to confirm or clear a drift",
+          "title": "Windows"
+        },
+        "drift_streak": {
+          "description": "Consecutive windows with an alert, this one included",
+          "title": "Drift Streak",
+          "type": "integer"
+        },
+        "no_drift_streak": {
+          "description": "Consecutive windows without alert, this one included",
+          "title": "No Drift Streak",
+          "type": "integer"
+        },
+        "confirmed": {
+          "description": "Drift confirmed after the persistence rule",
+          "title": "Confirmed",
+          "type": "boolean"
+        },
+        "changed": {
+          "description": "The confirmed verdict switched in this window",
+          "title": "Changed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "windows",
+        "drift_streak",
+        "no_drift_streak",
+        "confirmed",
+        "changed"
+      ],
+      "title": "Persistence",
+      "type": "object"
+    },
+    "Provenance": {
+      "description": "Who produced the record, and when",
+      "properties": {
+        "producer": {
+          "default": "pulsar-metrics",
+          "description": "Producing package",
+          "title": "Producer",
+          "type": "string"
+        },
+        "producer_version": {
+          "description": "Version of the producing package",
+          "title": "Producer Version",
+          "type": "string"
+        },
+        "produced_at": {
+          "description": "Time the record was produced (UTC, ISO 8601)",
+          "format": "date-time",
+          "title": "Produced At",
+          "type": "string"
+        },
+        "run_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the analysis that produced the result",
+          "title": "Run Name"
+        }
+      },
+      "required": [
+        "producer",
+        "producer_version",
+        "produced_at",
+        "run_name"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Quality": {
+      "description": "Data-quality aggregates behind the value",
+      "properties": {
+        "missing_share_current": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share of missing values set aside in the window",
+          "title": "Missing Share Current"
+        },
+        "missing_share_reference": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share of missing values set aside in the reference",
+          "title": "Missing Share Reference"
+        },
+        "low_expected_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "chi2 / psi / kl: share of cells with expected count < 5",
+          "title": "Low Expected Share"
+        },
+        "n_labelled": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Performance: rows with ground truth and prediction",
+          "title": "N Labelled"
+        },
+        "label_coverage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Performance: n_labelled / rows of the window",
+          "title": "Label Coverage"
+        },
+        "suppressed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fairness: value withheld (group below the minimum size)",
+          "title": "Suppressed"
+        }
+      },
+      "required": [
+        "missing_share_current",
+        "missing_share_reference",
+        "low_expected_share",
+        "n_labelled",
+        "label_coverage",
+        "suppressed"
+      ],
+      "title": "Quality",
+      "type": "object"
+    },
+    "Reference": {
+      "description": "Reference the window is compared with",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifier of the reference dataset or period, chosen by the user",
+          "title": "Id"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First timestamp of the reference (UTC, ISO 8601)",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Last timestamp of the reference (UTC, ISO 8601)",
+          "title": "End"
+        },
+        "n_rows": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rows in the reference",
+          "title": "N Rows"
+        }
+      },
+      "required": [
+        "id",
+        "start",
+        "end",
+        "n_rows"
+      ],
+      "title": "Reference",
+      "type": "object"
+    },
+    "Reliability": {
+      "description": "Whether the measurement can be trusted, and why not",
+      "properties": {
+        "reliable": {
+          "description": "False when any code is listed in reasons: the verdict is provisional or the value missing",
+          "title": "Reliable",
+          "type": "boolean"
+        },
+        "reasons": {
+          "description": "Codes that make reliable False (see REASON_CODES)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Codes that lower the confidence only (see NOTE_CODES)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "reason_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable reliability_reason of Pulsar",
+          "title": "Reason Text"
+        },
+        "calibration": {
+          "$ref": "#/$defs/Calibration"
+        },
+        "persistence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Persistence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality"
+        }
+      },
+      "required": [
+        "reliable",
+        "reasons",
+        "notes",
+        "reason_text",
+        "calibration",
+        "persistence",
+        "quality"
+      ],
+      "title": "Reliability",
+      "type": "object"
+    },
+    "Window": {
+      "description": "Current window the metric was computed on",
+      "properties": {
+        "start": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First timestamp of the window (UTC, ISO 8601)",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Last timestamp of the window (UTC, ISO 8601)",
+          "title": "End"
+        },
+        "n_rows": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rows (predictions, texts, runs) in the window",
+          "title": "N Rows"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "n_rows"
+      ],
+      "title": "Window",
+      "type": "object"
+    }
+  },
+  "description": "One finding about one monitored system, in the \"pulsar.evidence/1\" format",
+  "properties": {
+    "schema_version": {
+      "const": "pulsar.evidence/1",
+      "default": "pulsar.evidence/1",
+      "description": "Format and major version",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "evidence_id": {
+      "default": "",
+      "description": "sha256 of the identifying content (schema major version, system, model, metric, feature, group, subject metric, window, reference): the same finding sent twice has the same id",
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "system_id": {
+      "description": "External identifier of the monitored system, supplied by the user",
+      "title": "System Id",
+      "type": "string"
+    },
+    "model_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Model identifier",
+      "title": "Model Id"
+    },
+    "model_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Model version",
+      "title": "Model Version"
+    },
+    "metric": {
+      "$ref": "#/$defs/Metric"
+    },
+    "window": {
+      "$ref": "#/$defs/Window"
+    },
+    "reference": {
+      "$ref": "#/$defs/Reference"
+    },
+    "reliability": {
+      "$ref": "#/$defs/Reliability"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "details": {
+      "additionalProperties": true,
+      "description": "Free aggregates (counts, rates, settings). Never raw rows or personal data",
+      "title": "Details",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "system_id",
+    "model_id",
+    "model_version",
+    "metric",
+    "window",
+    "reference",
+    "reliability",
+    "provenance",
+    "details"
+  ],
+  "title": "Pulsar evidence record",
+  "type": "object"
+}

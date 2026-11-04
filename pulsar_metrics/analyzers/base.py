@@ -70,6 +70,7 @@ class AbstractAnalyzer(ABC):
         self._metrics_list = []
         self._missing_values: dict = {}  # column -> sentinel values turned into NaN before the analysis
         self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
+        self._window_info: dict = {}  # rows and period of the last run's windows (pulsar_metrics.evidence)
         self._results = None
 
     @property
@@ -272,6 +273,12 @@ class Analyzer(AbstractAnalyzer):
             }
         )
 
+        self._window_info = {
+            "n_current": int(df_current.shape[0]),
+            "n_reference": int(df_reference.shape[0]),
+            **self._reference_period(df_reference),
+        }
+
         if not self._metrics_list:
             raise error_msg(
                 value=None,
@@ -318,6 +325,16 @@ class Analyzer(AbstractAnalyzer):
                 except Exception as e:
                     logger.warning("Metric %s failed: %s", metric._name, e)
                     self._results.append(self._failed_result(metric, e))
+
+    @staticmethod
+    def _reference_period(reference: pd.DataFrame) -> dict:
+        """First and last pred_timestamp of the reference (empty when it has none or they do not parse)"""
+        if "pred_timestamp" not in reference.columns or reference.empty:
+            return {}
+        timestamps = pd.to_datetime(reference["pred_timestamp"], format="mixed", errors="coerce")
+        if timestamps.isna().all():
+            return {}
+        return {"reference_start": timestamps.min(), "reference_end": timestamps.max()}
 
     def _mask_missing(self, data: pd.DataFrame) -> pd.DataFrame:
         columns = [c for c in self._missing_values if c in data.columns]
