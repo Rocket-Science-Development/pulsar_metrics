@@ -560,7 +560,13 @@ interval lies entirely outside the acceptable zone**.
   and suppressed like any other: rows whose attribute is unknown are often the ones a report must not drop
   silently. Recode them beforehand to exclude them.
 - **Protected attributes do not need to travel with the predictions**: pass them separately with a pseudonymous id;
-  the join happens in memory and only group-level results come out.
+  the join happens in memory and only group-level results come out. Several attribute rows for one id without
+  `share=` / `count=` are refused with an explicit message (previously a raw pandas `MergeError`).
+- **Numeric protected attributes**: a numeric attribute with more than `numeric_levels` (20) distinct values raises
+  a warning, and the error raised when every one of its groups is suppressed suggests binning. `bins={"share": 3}`
+  bins it by quantiles (groups `Q1 [low, high]`, `Q2 (low, high]`, ...; `bins={"share": [0, 0.05, 1]}` for explicit
+  edges, groups `B1`, `B2`, ...), the edges are kept in `bin_edges` and in `method`, and `reference_groups={"share":
+  "Q1"}` names the reference by its prefix.
 
 ```python
 from pulsar_metrics.fairness import FairnessAnalyzer, FairnessPolicy
@@ -611,6 +617,38 @@ print(required_group_size(0.5, 0.5, zone=(-0.1, 0.1), reference_size=2000))  # r
 ```
 299
 ```
+
+#### Aggregate data: weights, composition tables and units
+
+`FairnessAnalyzer` assumes by default that a row is a person. When rows are units (communities, branches, schools)
+and the protected attribute is only known as a composition (the share of each group in the unit):
+
+- `weights="population"` weights every group rate and every interval by a row weight. Score intervals and the
+  binomial shortcut, which count independent rows, give way to the bootstrap.
+- a **composition table** passed as `attributes_data`, several rows per unit with the share (`share="share"`) or the
+  count of people (`count="residents"`) of each group, splits each unit's decision across its groups. With
+  `weights="population"` and shares, a group's selection rate is the share of its people who live in a flagged unit
+  (population-weighted exposure).
+- `cluster="unit_id"` resamples units, not rows, jointly across groups. `cluster` defaults to `on` with a
+  composition table. `n` and `min_group_size` then count units: **the effective sample size is the number of units**,
+  however many rows (or people) each unit has. Expanding aggregates into pseudo-individual rows without `cluster=`
+  gives intervals that shrink as 1/sqrt(copies), an arbitrary choice; a warning is raised when more than half of
+  the rows repeat another row exactly.
+- results built from a composition carry `status="ecological"`. They describe the people of each group through the
+  decisions taken on their units, not decisions taken on individuals. `unit="community"` names the unit in `method`.
+
+```python
+fairness = FairnessAnalyzer(["race"], FairnessPolicy(criteria=["demographic_parity_difference"]),
+                            reference_groups={"race": "White"}, weights="population", unit="community")
+# predictions: one row per community (cid, y_pred, population); composition: cid, race, share (several rows per cid)
+fairness.run(predictions, attributes_data=composition, on="cid", share="share")
+```
+
+On the lab data (UCI Communities and Crime, 1,994 communities, FA-03), this gives the population-weighted gap
+computed by hand in the lab: Black - White +0.376 [+0.335, +0.415] and Asian - White +0.128 [+0.048, +0.183],
+inconclusive, against the lab's cluster bootstrap [+0.334, +0.415] and [+0.044, +0.183]. On the same data expanded
+to 200,000 and 2,000,000 pseudo-individual rows, the Asian - White interval was 0.023 and 0.007 wide, with an
+"established" verdict. With `cluster="community"` it is 0.164 and 0.160 wide, and the verdict stays inconclusive.
 
 #### Known limits (night lab, FA-01 and FA-04)
 
@@ -703,7 +741,9 @@ request for authentication, a refusal), and they judge it against controls rathe
 | `counterfactual_excess_flip_rate` | flip rate minus placebo flip rate (Newcombe interval) | above `flip_tolerance` (0.05) |
 | `counterfactual_action_rate_difference` | rate of a given action in the group minus in the reference group, paired by set (BCa bootstrap); McNemar exact test, Benjamini-Hochberg over groups, in `method` | outside `rate_zone` |
 | `counterfactual_action_rate_ratio` | same rates, ratio (4/5 rule) | outside `ratio_zone` |
+| `unusable_rate` | comparative probes: share of the answers excluded from the analysis (call errors, refusals, unparsed answers), overall and per pair of groups when there are several; `method` gives the count of each kind and the sets still usable in both orders | above `max_unusable_rate` (0.5) |
 | `position_effect` | comparative probes: share of answers picking the first profile; `True` = the answers depend on the order | binomial test |
+| `comparative_instrument` | `"usable"` or `"instrument_unusable"` (also in `status`): unusable when more than `max_unusable_rate` of the answers are unusable, or when the answers depend on the order and more than `max_order_driven_share` (0.5) of the sets decided in both orders chose the same position twice | — |
 | `tie_rate`, `comparative_preference` | share of ties; probability of choosing a group, averaged over both orders | outside `preference_zone`; when the answers depend on the order, only a preference strong enough to show through is reported, never its absence |
 
 ```python
@@ -744,7 +784,19 @@ counterfactual_action_rate_ratio       name=maghreb  +4.632 [+3.185, +7.250] Tru
 default is 2.5 % per side). Inconclusive results end their `method` with the number of probe sets needed for an
 80 % chance of a verdict at the observed rates (`paired_sets_needed`, `flip_sets_needed`).
 
-#### Known limits (night lab, FA-04 and LB-01)
+An answer is unusable when its call failed (`error`), when `choice` is `"refusal"` or when `choice` is missing or
+holds anything other than `"first"`, `"second"` or `"tie"` (unparsed). Unusable answers are excluded from
+`position_effect`, `tie_rate` and the preferences, and reported in `unusable_rate`. With an unusable instrument,
+the preferences carry `status="instrument_unusable"`: an established preference is kept, but no verdict of absence
+is given.
+
+#### Known limits (night lab, FA-04, LB-01 and LB-02)
+
+- **The comparative probe answers the position, not the profiles, on small local models** (LB-02, French
+  CrowS-Pairs, 6 models): the share of "first" answers ranged from 0.028 to 0.991. `comparative_instrument` flags all
+  6 as unusable: 58 % (ministral-3:8b) to 98 % (llama3.1:8b) of the sets decided in both orders chose the same
+  position twice. llama3.2:3b refused 23.3 % of its answers (326 of 1,400, all unparsed). Before, they were dropped
+  silently; `unusable_rate` now reports them, with 513 of 700 sets usable in both orders.
 
 - **30 probe sets rarely certify anything**: without any bias, the action rate difference was "within the zone"
   (+-0.1) in 10 % of runs at 30 sets, 79 % at 60 and 97 % at 100. With no discordant set at all, the bound on the

@@ -10,7 +10,8 @@ import numpy as np
 class Criterion:
     """A fairness criterion comparing one group with the reference group
 
-    `statistic` computes the group statistic from the arrays of the group (y_pred, y_true, score);
+    `statistic` computes the group statistic from the arrays of the group (y_pred, y_true, score), with optional row
+    weights (`weights=`, e.g. population);
     `compare` turns (group statistic, reference statistic) into the disparity; `acceptable` is the default
     acceptable zone [low, high] of the disparity.
     """
@@ -24,40 +25,54 @@ class Criterion:
     needs_scores: bool = False
 
 
-def _mean(values) -> float:
-    return float(np.mean(values)) if len(values) else float("nan")
+def _mean(values, weights=None) -> float:
+    if not len(values):
+        return float("nan")
+    if weights is None:
+        return float(np.mean(values))
+    total = float(np.sum(weights))
+    return float(np.dot(weights, values) / total) if total > 0 else float("nan")
 
 
-def selection_rate(y_pred, y_true=None, score=None) -> float:
-    return _mean(y_pred)
+def _among(weights, rows):
+    return None if weights is None else weights[rows]
 
 
-def true_positive_rate(y_pred, y_true, score=None) -> float:
+def selection_rate(y_pred, y_true=None, score=None, weights=None) -> float:
+    return _mean(y_pred, weights)
+
+
+def true_positive_rate(y_pred, y_true, score=None, weights=None) -> float:
     positives = y_true == 1
-    return _mean(y_pred[positives])
+    return _mean(y_pred[positives], _among(weights, positives))
 
 
-def false_positive_rate(y_pred, y_true, score=None) -> float:
+def false_positive_rate(y_pred, y_true, score=None, weights=None) -> float:
     negatives = y_true == 0
-    return _mean(y_pred[negatives])
+    return _mean(y_pred[negatives], _among(weights, negatives))
 
 
-def expected_calibration_error(y_pred, y_true, score, bins: int = 10) -> float:
-    """Expected calibration error of the scores, on equal-width bins"""
+def expected_calibration_error(y_pred, y_true, score, bins: int = 10, weights=None) -> float:
+    """Expected calibration error of the scores, on equal-width bins (bins weighted by their share of the weights)"""
     if len(score) == 0:
+        return float("nan")
+    w = np.ones(len(score)) if weights is None else np.asarray(weights, dtype=float)
+    total = w.sum()
+    if total <= 0:
         return float("nan")
     edges = np.linspace(0, 1, bins + 1)
     index = np.clip(np.digitize(score, edges[1:-1]), 0, bins - 1)
     ece = 0.0
     for b in range(bins):
         in_bin = index == b
-        if in_bin.any():
-            ece += in_bin.mean() * abs(score[in_bin].mean() - y_true[in_bin].mean())
+        mass = w[in_bin].sum()
+        if mass > 0:
+            ece += mass / total * abs(np.dot(w[in_bin], score[in_bin] - y_true[in_bin]) / mass)
     return float(ece)
 
 
-def mean_absolute_error(y_pred, y_true, score=None) -> float:
-    return _mean(np.abs(y_pred - y_true))
+def mean_absolute_error(y_pred, y_true, score=None, weights=None) -> float:
+    return _mean(np.abs(y_pred - y_true), weights)
 
 
 def _ratio(group: float, reference: float) -> float:
