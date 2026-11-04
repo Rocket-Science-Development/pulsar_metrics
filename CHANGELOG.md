@@ -2,6 +2,75 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] - 2026-11-04
+
+Changes recommended by the P2 lab of 3 November 2026 (TC-02, TC-04, TS-04, FA-03, LA-02, LB-02).
+
+### Added
+
+**Calibration and drift (TC-02, TC-04, TS-04)**
+
+- `AACalibrator(compare_to="reference" | "window")`. A null whose A/A draws sit at the bound of the statistic in more
+  than 5 % of draws (p-value underflowed to 0, psi/kl at the epsilon ceiling) gets the status `saturated`, a warning
+  advising wasserstein or a reference per regime, and `reliable=False` on its results. `NullDistribution.share_at_bound`.
+- `NullDistribution.between_within_ratio`; `fit()` warns above 10 (the reference is dominated by seasonality).
+- `period_reference(reference, current, weeks=4, time_column=...)`: the reference rows in the same weeks of the year,
+  to calibrate and compare seasonal data.
+- Optional grouping of sparse levels for chi2, psi and kl (`min_expected`, `max_levels`, also in
+  `Analyzer.add_drift_metrics`), chosen on the reference and applied alike to the window and the A/A draws.
+- `MetricResults`: `reliability_reason`, `low_expected_share` (share of cells with an expected count below 5); drift
+  results fill `n`. A categorical feature above 20 % sparse cells without grouping warns.
+
+**Fairness on aggregate data (FA-03)**
+
+- `FairnessAnalyzer(weights=, unit=)`: row weights used by every group rate and interval. Many-to-one composition
+  tables: `run(attributes_data=..., on=..., share=...)` or `count=...`, converted to weights; results built from
+  aggregates carry `status="ecological"`.
+- `cluster=`: the bootstrap resamples units, jointly across groups; `n` and `min_group_size` count units. A warning
+  flags mostly duplicated rows.
+- `bins=` discretises a numeric protected attribute by quantiles or edges (`bin_edges`); a numeric attribute with more
+  than `numeric_levels=20` distinct values warns.
+
+**Comparative probes (LB-02)**
+
+- `comparative_analysis` publishes `unusable_rate` (errors, refusals `choice="refusal"`, unparsed answers) and a
+  `comparative_instrument` result whose status is `instrument_unusable` when answers are mostly unusable or order-driven
+  (`max_unusable_rate`, `max_order_driven_share`).
+
+**Agent compliance (LA-02)**
+
+- Rules read rich traces (`{name, kind, args, status}` elements and conversation events), declared by
+  `ComplianceMonitor.accepts_rich_trace = True`. Atom predicates `tool[arg=value]`, `tool[arg!=value]`, `tool[arg]`,
+  `tool[status=error]`, events `@name`, wildcards `*[...]` and `@*`; lists of atoms ("any of") in `events`.
+- Templates `alternate_precedence` and `alternate_response`; argument binding `bind: [order_id]` (the rule holds for
+  every value), usable from the YAML file.
+- "Not evaluable" outcome: `Rule.verdict()` (True, False or None), `RuleNotEvaluable`, `NotEvaluableWarning`,
+  `NOT_EVALUABLE`, `ComplianceMonitor.not_evaluable()`, `not_evaluable_rules` in `run_record`, `status="not_evaluable"`
+  in `evaluate`. `trace_from` returns a `NameTrace` (a list). On a synthetic replica of LA-02, the confirmation rule goes
+  from 36 structural false alarms to the 23 real violations.
+
+### Changed
+
+- `AACalibrator` compares by default each A/A window with the rest of the reference (`compare_to="reference"`), as
+  `Analyzer.run` does. Window-against-window thresholds were too lenient for that comparison (AR(1), phi = 0.9:
+  0.2 % wasserstein false alarms instead of 5 %, hence a loss of power). `compare_to="window"` keeps the old draws, and
+  calibrations saved before load back that way; the cache format is `pulsar-aa-null-v2`. Calibration is slower (about
+  7x on a reference of 40 windows).
+- `auc` and `aucpr` need 30 labelled rows and both classes by default (`min_labelled=1` restores the old behaviour);
+  other performance metrics are `reliable=False` below 30 labelled rows. A drift window more than 2x away from the
+  calibrated size is `reliable=False`, and `empirical_pvalues()` warns.
+- `comparative_analysis` results start with `unusable_rate` and include `comparative_instrument`; when every answer is
+  unusable it returns them instead of raising.
+- `FairnessAnalyzer` raises an explicit `CustomExceptionPulsarMetric` instead of a pandas `MergeError` on a many-to-one
+  join without `share=`/`count=` or on duplicate prediction ids; `AllCellsSuppressed` on a numeric attribute suggests
+  `bins=`.
+
+### Fixed
+
+- `position_effect` counted a `choice` other than first/second/tie as a non-first decision; such answers are excluded,
+  also from the `tie_rate` denominator.
+- `allowed_tools` raised on rich trace elements; it now checks tool names and ignores events.
+
 ## [0.11.0] - 2026-11-02
 
 Fixes for the limits confirmed by the night lab of 2 November 2026: C1, C2, C3 (metrics side), M1 to M9, M23
