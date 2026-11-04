@@ -1,5 +1,6 @@
 #  Copyright Développement Science Fusée inc.
 #  SPDX-License-Identifier: Apache-2.0
+import warnings
 from numbers import Number
 from typing import Iterable, Optional, Union
 
@@ -13,6 +14,7 @@ from ..utils import drift_from_threshold
 from . import constant
 from .base import AbstractMetrics, MetricResults, MetricsType
 from .enums import DriftMetricsFuncs, DriftTestMetricsFuncs
+from .utils import get_population_counts, low_expected_share
 
 NAN_POLICIES = ("omit", "propagate", "raise")
 # Metrics about the missing values themselves: NaN are kept, and a reference without variation is normal
@@ -20,6 +22,10 @@ MISSINGNESS_METRICS = ("missing_rate",)
 CONSTANT_REFERENCE = "constant_reference"
 # Functions that take numpy arrays as well as pandas series (scipy statistics)
 ARRAY_FUNCTIONS = ("wasserstein", "ttest", "manwu", "levene", "bftest", "ks_2samp", "CvM")
+# Metrics computed on a table of counts per level or bin: they accept level grouping and report low_expected_share
+COUNT_METRICS = ("chi2", "psi", "kl")
+SPARSE_SHARE = 0.2  # above this share of cells with expected count < 5, a warning suggests grouping the levels
+WINDOW_RATIO = 2  # a window more than this factor away from the calibrated window size gets reliable=False
 
 MissingValues = Union[None, object, Iterable]
 
@@ -79,13 +85,25 @@ class _FeatureDriftMetric(AbstractMetrics):
     _funcs = None  # enum of the metric functions
     _kind = "drift metric"
 
-    def __init__(self, metric_name: str, feature_name: str, missing_values: MissingValues = None, nan_policy: str = "omit"):
+    def __init__(
+        self,
+        metric_name: str,
+        feature_name: str,
+        missing_values: MissingValues = None,
+        nan_policy: str = "omit",
+        min_expected: Optional[float] = None,
+        max_levels: Optional[int] = None,
+    ):
         super().__init__(metric_name)
         self._check_metrics_name(metric_name)
         self._feature_name = feature_name
         self._missing_values = normalize_missing_values(missing_values)
         self._check_nan_policy(nan_policy)
         self._nan_policy = nan_policy
+        # level grouping of chi2 / psi / kl, applied alike in evaluate() and in the A/A draws of AACalibrator
+        self._grouping = {}
+        if metric_name in COUNT_METRICS:
+            self._grouping = {k: v for k, v in (("min_expected", min_expected), ("max_levels", max_levels)) if v is not None}
 
     @staticmethod
     def _check_nan_policy(nan_policy: str):
@@ -123,7 +141,7 @@ class _FeatureDriftMetric(AbstractMetrics):
     def _value(self, new, reference, nan_policy: Optional[str] = None, **kwargs) -> float:
         """Statistic on columns already extracted with _extract() (fast path of AACalibrator); NaN when undefined"""
         new, reference, _ = self._clean(new, reference, nan_policy)
-        value = self._raw_value(self._funcs[self._name].value(new, reference, **kwargs))
+        value = self._raw_value(self._funcs[self._name].value(new, reference, **{**self._grouping, **kwargs}))
         return float("nan") if _is_nan(value) else float(value)
 
     def _value_array(self, new: np.ndarray, reference: np.ndarray) -> float:
@@ -139,31 +157,68 @@ class _FeatureDriftMetric(AbstractMetrics):
         if self._name in ARRAY_FUNCTIONS:
             raw = self._funcs[self._name].value(new, reference)
         else:
-            raw = self._funcs[self._name].value(pd.Series(new), pd.Series(reference))
+            raw = self._funcs[self._name].value(pd.Series(new), pd.Series(reference), **self._grouping)
         value = self._raw_value(raw)
         return float("nan") if _is_nan(value) else float(value)
 
-    def _evaluate(self, current, reference, verdict, threshold, nan_policy, reliable, kwargs) -> MetricResults:
+    def _low_expected_share(self, new, ref, kwargs) -> Optional[float]:
+        """Share of cells with expected count < 5 in the table chi2 / psi / kl were computed on (None otherwise)"""
+        if self._name not in COUNT_METRICS or kwargs.get("binned"):
+            return None
+        grouping = {k: v for k, v in {**self._grouping, **kwargs}.items() if k in ("min_expected", "max_levels")}
+        try:
+            share = low_expected_share(get_population_counts(new, ref, **grouping))
+        except Exception:
+            return None
+        categorical = isinstance(new, pd.Series) and not is_numeric_dtype(new)  # numeric bins: sparse tails are expected
+        if share is not None and share > SPARSE_SHARE and not grouping and categorical:
+            warnings.warn(
+                f"{self._name} on {self._feature_name}: {share:.0%} of the cells have an expected count below 5 (many sparse "
+                "levels): the test loses power. Group the levels with min_expected=5 or max_levels= (add_drift_metrics)",
+                UserWarning,
+                stacklevel=4,
+            )
+        return share
+
+    def _evaluate(
+        self, current, reference, verdict, threshold, nan_policy, reliable, kwargs, calibration_status=None, window_size=None
+    ) -> MetricResults:
         try:
             new = self._extract(current)
             ref = self._extract(reference)
             self._column = new
             new, ref, info = self._clean(new, ref, nan_policy)
-            value = self._raw_value(self._funcs[self._name].value(new, ref, **kwargs))
+            value = self._raw_value(self._funcs[self._name].value(new, ref, **{**self._grouping, **kwargs}))
             constant_reference = self._name not in MISSINGNESS_METRICS and is_constant(ref)
         except Exception as e:
             raise MetricEvaluationError(
                 value=self._name, message=f"Cannot evaluate {self._kind} {self._name} on {self._feature_name}: {e}"
             ) from e
 
+        status = CONSTANT_REFERENCE if constant_reference else None
+        reasons = []
+        if calibration_status is not None and calibration_status != "ok":
+            # e.g. "saturated": the calibrated threshold cannot separate a drift from the null (AACalibrator)
+            status = status or calibration_status
+            reliable = False
+            reasons.append(f"calibrated null distribution {calibration_status}")
+        n_rows = len(new)
+        if window_size and (n_rows * WINDOW_RATIO < window_size or n_rows > WINDOW_RATIO * window_size):
+            # the null distribution, hence the threshold, depends strongly on the window size (lab TC-04: 10 to 67 rows
+            # judged with thresholds calibrated on 1000)
+            reliable = False
+            reasons.append(f"window of {n_rows} rows, threshold calibrated on windows of {window_size} rows")
         common = dict(
             metric_name=self._name,
             metric_type=MetricsType.drift.value,
             feature_name=self._feature_name,
             conf_int=None,
             threshold=threshold,
-            status=CONSTANT_REFERENCE if constant_reference else None,
+            status=status,
             reliable=reliable,
+            reliability_reason="; ".join(reasons) or None,
+            n=n_rows,
+            low_expected_share=self._low_expected_share(new, ref, kwargs),
             **info,
         )
         if _is_nan(value):
@@ -194,15 +249,34 @@ class DriftMetric(_FeatureDriftMetric):
         "omit" (default): missing values are set aside and their share is recorded in `missing_share_current` /
         `missing_share_reference`; "propagate": passed to the function as is; "raise": error when any is found.
         Whatever the policy, a NaN statistic gives `drift_status=None` and an `error`.
+    min_expected : float, optional
+        psi and kl: merge the levels (or bins) whose expected count in the current window, computed from the
+        reference shares, is below it into one "other" level (default None: no grouping), see utils.group_levels
+    max_levels : int, optional
+        psi and kl: keep at most this many levels, "other" included (default None)
     """
 
     _funcs = DriftMetricsFuncs
     _kind = "drift metric"
 
     def __init__(
-        self, metric_name: str, feature_name: str, missing_values: MissingValues = None, nan_policy: str = "omit", **kwargs
+        self,
+        metric_name: str,
+        feature_name: str,
+        missing_values: MissingValues = None,
+        nan_policy: str = "omit",
+        min_expected: Optional[float] = None,
+        max_levels: Optional[int] = None,
+        **kwargs,
     ):
-        super().__init__(metric_name, feature_name, missing_values=missing_values, nan_policy=nan_policy)
+        super().__init__(
+            metric_name,
+            feature_name,
+            missing_values=missing_values,
+            nan_policy=nan_policy,
+            min_expected=min_expected,
+            max_levels=max_levels,
+        )
 
     def evaluate(
         self,
@@ -212,6 +286,8 @@ class DriftMetric(_FeatureDriftMetric):
         upper_bound: bool = True,
         nan_policy: Optional[str] = None,
         reliable: Optional[bool] = None,
+        calibration_status: Optional[str] = None,
+        window_size: Optional[int] = None,
         **kwargs,
     ) -> MetricResults:
         """Method evaluate() to evaluate the DriftMetric
@@ -231,6 +307,12 @@ class DriftMetric(_FeatureDriftMetric):
                 Overrides the policy given at construction ("omit", "propagate" or "raise")
         reliable : bool, optional
                 Reliability of a calibrated threshold (AACalibrator.options()), copied to the result
+        calibration_status : str, optional
+                Status of the calibrated null (AACalibrator.options()); other than "ok" (e.g. "saturated"), it is
+                copied to `status` and the result gets reliable=False
+        window_size : int, optional
+                Window size of the calibration (AACalibrator.options()); a current window more than 2x smaller or
+                larger gets reliable=False and a `reliability_reason`
         kwargs :
                 keyworded variable length of arguments to a function
 
@@ -247,23 +329,40 @@ class DriftMetric(_FeatureDriftMetric):
             nan_policy,
             reliable,
             kwargs,
+            calibration_status=calibration_status,
+            window_size=window_size,
         )
 
 
 class DriftTestMetric(_FeatureDriftMetric):
     """Statistical test between the current and reference samples of a feature (verdict on `alpha`)
 
-    `metric_value` is the p-value. Same `missing_values` and `nan_policy` parameters as DriftMetric. The
-    `missing_rate` test compares the share of missing values itself: its NaN are never set aside.
+    `metric_value` is the p-value. Same `missing_values` and `nan_policy` parameters as DriftMetric, and the same
+    `min_expected` / `max_levels` level grouping for chi2. The `missing_rate` test compares the share of missing values
+    itself: its NaN are never set aside.
     """
 
     _funcs = DriftTestMetricsFuncs
     _kind = "drift test"
 
     def __init__(
-        self, metric_name: str, feature_name: str, missing_values: MissingValues = None, nan_policy: str = "omit", **kwargs
+        self,
+        metric_name: str,
+        feature_name: str,
+        missing_values: MissingValues = None,
+        nan_policy: str = "omit",
+        min_expected: Optional[float] = None,
+        max_levels: Optional[int] = None,
+        **kwargs,
     ):
-        super().__init__(metric_name, feature_name, missing_values=missing_values, nan_policy=nan_policy)
+        super().__init__(
+            metric_name,
+            feature_name,
+            missing_values=missing_values,
+            nan_policy=nan_policy,
+            min_expected=min_expected,
+            max_levels=max_levels,
+        )
 
     def _raw_value(self, result):
         return result.pvalue
@@ -275,6 +374,8 @@ class DriftTestMetric(_FeatureDriftMetric):
         alpha: float = constant.SIGNIFICANCE_LEVEL,
         nan_policy: Optional[str] = None,
         reliable: Optional[bool] = None,
+        calibration_status: Optional[str] = None,
+        window_size: Optional[int] = None,
         **kwargs,
     ) -> MetricResults:
         """Method evaluate() to evaluate the DriftTestMetric
@@ -291,6 +392,8 @@ class DriftTestMetric(_FeatureDriftMetric):
             Overrides the policy given at construction ("omit", "propagate" or "raise")
         reliable : bool, optional
             Reliability of a calibrated alpha (AACalibrator.options()), copied to the result
+        calibration_status, window_size : optional
+            From AACalibrator.options(), see DriftMetric.evaluate
         kwargs :
             keyworded variable length of arguments to a function
 
@@ -307,6 +410,8 @@ class DriftTestMetric(_FeatureDriftMetric):
             nan_policy,
             reliable,
             kwargs,
+            calibration_status=calibration_status,
+            window_size=window_size,
         )
 
 

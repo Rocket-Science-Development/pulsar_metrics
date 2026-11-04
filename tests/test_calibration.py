@@ -33,7 +33,8 @@ def fresh_pairs(n_pairs, window, phi, seed):
 
 def test_iid_data_calibrated_alpha_is_close_to_nominal():
     rng = np.random.default_rng(0)
-    cal = AACalibrator(window_size=100, n_draws=200, contiguous=False).fit(
+    # fresh pairs of windows are checked below: calibrate window against window
+    cal = AACalibrator(window_size=100, n_draws=200, contiguous=False, compare_to="window").fit(
         frame(rng.normal(size=2000)), [DriftTestMetric("ks_2samp", "score"), DriftMetric("wasserstein", "score")]
     )
     alpha = cal.options()["ks_2samp|score"]["alpha"]
