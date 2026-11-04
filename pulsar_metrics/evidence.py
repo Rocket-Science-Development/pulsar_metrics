@@ -18,11 +18,16 @@ package (`pulsar_metrics/schemas/evidence-1.json`, see `json_schema()`). Compati
 
 `details` holds aggregates only (counts, rates, statistics, settings): never raw rows, texts, identifiers of people or
 any personal data. Its serialized size is capped (MAX_DETAILS_BYTES) as a guard against dumping data by mistake.
+
+Records hold strict JSON only: NaN and infinities are refused by the models, by `loads()` and by `dumps()` (the
+converters turn non-finite values into null, with a reason code for a value carrying a verdict).
 """
 
 import hashlib
 import json
 import math
+import re
+import warnings
 from datetime import datetime, timezone
 from importlib import metadata
 from numbers import Number
@@ -64,12 +69,14 @@ _FAMILIES = {
 # drift results of pulsar_metrics.genai (embedding_drift, model_equality): value is a statistic, verdict on p_value
 GENAI_METRICS = ("embedding_mean_shift", "embedding_novelty", "model_equality")
 SMALL_CANARY_ANSWERS = 480  # pulsar_metrics.genai.RECOMMENDED_CANARY["answers"]
+POINT_ESTIMATE_DECISIONS = ("unusable_rate",)  # fairness results decided on the value, not on their interval
+UNSTABLE_REFERENCE = "unstable_reference"  # pulsar_metrics.explain: the ranking is not stable on the reference
 _NULL_STATUSES = {"saturated": "saturated_null", "degenerate_null": "degenerate_null", CONSTANT_REFERENCE: CONSTANT_REFERENCE}
 
 # Codes of Reliability.reasons: each one makes `reliable` False
 REASON_CODES = {
     "computation_error": "the metric could not be computed (see metric.error)",
-    "no_ground_truth": "performance: no labelled row in the window",
+    "no_ground_truth": "performance or fairness criterion that needs labels: no labelled row (or no label column)",
     "insufficient_labels": "performance: too few labelled rows, too low a label coverage, or a single class",
     "few_labelled_rows": f"performance: value computed on fewer than {MIN_LABELLED} labelled rows",
     "constant_reference": "the reference of the feature holds a single value: thresholds are degenerate",
@@ -81,6 +88,9 @@ REASON_CODES = {
     "rule_not_evaluable": "compliance: no run carries what the rule reads (arguments, statuses, events)",
     "instrument_unusable": "fairness probe: the instrument cannot tell the variants apart",
     "flagged_unreliable": "Pulsar flagged the result reliable=False (see reason_text)",
+    "non_finite_value": "the value is NaN or infinite (exported as null, see details.value_non_finite): the verdict "
+    "cannot be checked against the threshold",
+    "unstable_reference": "explainability: the attribution ranking is not stable on the reference window, no verdict",
 }
 # Codes of Reliability.notes: they lower the confidence without making `reliable` False
 NOTE_CODES = {
@@ -96,8 +106,9 @@ NOTE_CODES = {
 
 
 def _utc(value) -> Optional[datetime]:
-    """Datetime (or ISO string, pandas Timestamp) in UTC; naive datetimes are taken as UTC"""
-    if value is None or (not isinstance(value, (str, datetime)) and pd.isna(value)):
+    """Datetime (or ISO string, pandas Timestamp) in UTC; naive datetimes are taken as UTC; None, NaN and NaT give None"""
+    # NaT is a datetime instance: the missing-value test comes first
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
         return None
     if isinstance(value, pd.Timestamp):
         value = value.to_pydatetime()
@@ -139,7 +150,7 @@ def _number(value) -> Optional[Union[int, float]]:
 
 
 class _Part(BaseModel):
-    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=True)
+    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=True, allow_inf_nan=False)
 
 
 class Metric(_Part):
@@ -154,8 +165,10 @@ class Metric(_Part):
         None, description="Metric this one is about, e.g. the fairness criterion of a no_verdict_share coverage record"
     )
     value: Optional[Union[int, float, str]] = Field(None, description="Value of the metric (p-value for statistical tests)")
-    threshold: Optional[Union[float, list[float]]] = Field(
-        None, description="Threshold or alpha; [low, high] for an acceptable zone. None: no threshold"
+    threshold: Optional[Union[float, list[Optional[float]]]] = Field(
+        None,
+        description="Threshold or alpha; [low, high] for an acceptable zone, a null bound being unbounded (e.g. "
+        "[0.8, null]). None: no threshold",
     )
     direction: Direction = Field(
         "none",
@@ -183,6 +196,11 @@ class Metric(_Part):
 class Window(_Part):
     """Current window the metric was computed on"""
 
+    id: Optional[str] = Field(
+        None,
+        description="Identifier of the window chosen by the caller (batch, run or period id), hashed into evidence_id; "
+        "needed when the window has no start and end",
+    )
     start: Optional[datetime] = Field(None, description="First timestamp of the window (UTC, ISO 8601)")
     end: Optional[datetime] = Field(None, description="Last timestamp of the window (UTC, ISO 8601)")
     n_rows: Optional[int] = Field(None, description="Rows (predictions, texts, runs) in the window")
@@ -283,6 +301,7 @@ class Evidence(_Part):
     model_config = ConfigDict(
         extra="ignore",
         json_schema_serialization_defaults_required=True,
+        allow_inf_nan=False,
         protected_namespaces=(),  # model_id, model_version
         title="Pulsar evidence record",
     )
@@ -291,7 +310,8 @@ class Evidence(_Part):
     evidence_id: str = Field(
         "",
         description="sha256 of the identifying content (schema major version, system, model, metric, feature, group, "
-        "subject metric, window, reference): the same finding sent twice has the same id",
+        "subject metric, window, reference, compliance rules version; produced_at when the window has no start, end "
+        "nor id): the same finding sent twice has the same id. Checked when a record is read",
     )
     system_id: str = Field(description="External identifier of the monitored system, supplied by the user")
     model_id: Optional[str] = Field(None, description="Model identifier")
@@ -321,8 +341,13 @@ class Evidence(_Part):
 
     @model_validator(mode="after")
     def _identify(self):
-        if not self.evidence_id:
-            self.evidence_id = evidence_id(self)
+        expected = evidence_id(self)
+        if self.evidence_id and self.evidence_id != expected:
+            raise ValueError(
+                f"evidence_id {self.evidence_id[:12]}... does not match the identifying content of the record "
+                f"({expected[:12]}...): the record was altered, or its id computed otherwise"
+            )
+        self.evidence_id = expected
         return self
 
     # ------------------------------------------------------------------ JSON round trip
@@ -335,10 +360,12 @@ class Evidence(_Part):
 
     @classmethod
     def from_dict(cls, data: dict) -> "Evidence":
+        """Record of a dict; ValidationError when its evidence_id does not match its content, or it holds NaN"""
         return cls.model_validate(data)
 
     @classmethod
     def from_json(cls, text: Union[str, bytes]) -> "Evidence":
+        """Record of a JSON object; ValidationError when its evidence_id does not match its content, or it holds NaN"""
         return cls.model_validate_json(text)
 
 
@@ -346,9 +373,14 @@ def evidence_id(record: Evidence) -> str:
     """sha256 of the identifying content of a record
 
     Hashed: schema major version, system_id, model_id, model_version, metric family, name, feature, group,
-    reference group and subject metric, window start and end, reference id, start and end. Not hashed: the value, the verdict, the
-    reliability, details and provenance: a recomputation of the same metric on the same window has the same id
-    (receivers keep the record with the latest provenance.produced_at).
+    reference group and subject metric, window id, start and end, reference id, start and end, and for compliance
+    records the rules version (details.rules_version). Not hashed: the value, the verdict, the reliability, the other
+    details and the provenance: a recomputation of the same metric on the same window has the same id (receivers keep
+    the record with the latest provenance.produced_at).
+
+    A window with no start, end nor id cannot tell two windows apart: provenance.produced_at is then hashed too, so
+    that a later window does not overwrite an earlier one at the receiver (the converters warn; pass window={"id": ...}
+    to keep the same id when the same finding is sent again).
     """
     identity = {
         "schema": SCHEMA_VERSION,
@@ -361,11 +393,18 @@ def evidence_id(record: Evidence) -> str:
         "group": record.metric.group,
         "reference_group": record.metric.reference_group,
         "subject_metric": record.metric.subject_metric,
-        "window": [_iso(record.window.start), _iso(record.window.end)],
+        "window": [record.window.id, _iso(record.window.start), _iso(record.window.end)],
         "reference": [record.reference.id, _iso(record.reference.start), _iso(record.reference.end)],
+        "rules_version": record.details.get("rules_version") if record.metric.family == "compliance" else None,
     }
+    if _no_window(record.window):
+        identity["produced_at"] = _iso(record.provenance.produced_at)
     canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _no_window(window: Window) -> bool:
+    return window.id is None and window.start is None and window.end is None
 
 
 def json_schema() -> dict:
@@ -408,16 +447,19 @@ def _family(result: MetricResults) -> str:
 
 
 def _decision(result: MetricResults, family: str, threshold, upper_bound: Optional[bool]) -> tuple:
-    """(direction, decision_basis) of a result"""
+    """(direction, decision_basis) of a result, from the threshold as exported"""
     if threshold is None:
         return "none", "none"
     if result.test_type == "sequential":
         return "outside", "sequential_test"
+    if _position_test(result):
+        return "lower", "p_value"  # two-sided binomial test against 0.5: alert when its p-value is below alpha
     if result.metric_name in DriftTestMetricsFuncs._member_names_ or family == "genai":
         return "lower", "p_value"
     if family == "compliance":
         return ("lower", "reference_test") if result.p_value is not None else ("lower", "value")
     interval = result.ci_low is not None or result.ci_high is not None
+    interval = interval and result.metric_name not in POINT_ESTIMATE_DECISIONS
     basis = "confidence_interval" if family in ("fairness", "explainability") and interval else "value"
     if isinstance(threshold, list):
         return "outside", basis
@@ -435,16 +477,46 @@ def _subject_metric(result: MetricResults) -> Optional[str]:
     return None
 
 
+def _position_test(result: MetricResults) -> bool:
+    """pulsar_metrics.fairness comparative_analysis: position_effect is decided by a binomial test (its p_value)"""
+    return result.metric_name == "position_effect" and result.p_value is not None
+
+
+def _alpha(method: Optional[str]) -> Optional[float]:
+    match = re.search(r"alpha = ([0-9.eE+-]+)", method or "")
+    return float(match.group(1)) if match else None
+
+
+def _rules_version(method: Optional[str]) -> Optional[str]:
+    """ComplianceMonitor.evaluate: the rules version is in the method ("<formula> [<severity>; rules <version>]...")"""
+    match = re.search(r"; rules ([^\]]+)\]", method or "")
+    return match.group(1) if match else None
+
+
+def _finite_number(value) -> bool:
+    return isinstance(value, Number) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _threshold(threshold):
+    """Threshold as exported: a non-finite scalar is no threshold, a non-finite bound of a zone is unbounded (None)"""
+    if isinstance(threshold, list):
+        return [_number(t) for t in threshold]
+    return _number(threshold)
+
+
 def _status(result: MetricResults) -> str:
     if result.suppressed or result.status == "not_evaluable":
         return "not_evaluable"
     if result.error is not None and result.metric_value is None:
-        # performance results refused for their labels carry n_labelled; failures of the computation do not
+        # results refused for their labels carry n_labelled (performance, fairness); failures of the computation do not
         return "not_evaluable" if result.n_labelled is not None else "error"
     if result.drift_status is True:
         return "alert"
     if result.drift_status is False:
         return "ok"
+    if result.metric_name == "no_verdict_share" and _finite_number(result.metric_value) and _finite_number(result.threshold):
+        # FairnessAnalyzer.coverage(): the threshold is the policy maximum of rows without verdict
+        return "alert" if result.metric_value > result.threshold else "ok"
     return "no_verdict"
 
 
@@ -481,6 +553,8 @@ def _calibration(result: MetricResults, options: dict, calibrator, threshold) ->
     null = None
     if calibrator is not None:
         null = getattr(calibrator, "nulls", {}).get((result.metric_name, result.feature_name))
+    if null is not None and not (_finite_number(threshold) and math.isclose(threshold, null.threshold, rel_tol=1e-9)):
+        null = None  # the result was evaluated with another threshold than the calibrated one: report what was used
     if null is not None:
         low, high = null.threshold_interval()
         value = result.metric_value if isinstance(result.metric_value, Number) else None
@@ -508,7 +582,13 @@ def _calibration(result: MetricResults, options: dict, calibrator, threshold) ->
 
 
 def _reliability(
-    result: MetricResults, family: str, status: str, calibration: Calibration, short_reference: bool, persistence
+    result: MetricResults,
+    family: str,
+    status: str,
+    calibration: Calibration,
+    short_reference: bool,
+    persistence,
+    non_finite: bool = False,
 ) -> Reliability:
     reasons, notes = [], []
 
@@ -524,7 +604,11 @@ def _reliability(
         add(reasons, "rule_not_evaluable")
     if result.status == "instrument_unusable":
         add(reasons, "instrument_unusable")
-    if family == "performance" and result.n_labelled is not None:
+    if result.status == UNSTABLE_REFERENCE:
+        add(reasons, UNSTABLE_REFERENCE)
+    if non_finite and status in ("ok", "alert", "no_verdict"):
+        add(reasons, "non_finite_value")
+    if family in ("performance", "fairness") and result.n_labelled is not None:
         if result.metric_value is None and result.error is not None:
             add(reasons, "no_ground_truth" if result.n_labelled == 0 else "insufficient_labels")
         elif result.n_labelled < MIN_LABELLED:
@@ -612,6 +696,9 @@ def evidence_from_result(
         Overrides the family inferred from metric_type and metric_name
     details : dict, optional
         Extra aggregates, merged over the ones taken from the result (conf_int, raw status). Never raw rows
+
+    A record whose window has no start, end nor id gets an evidence_id that includes produced_at (UserWarning): pass
+    window={"id": ...} (batch, run or period id) so that the same finding sent again keeps its id.
     """
     options = options or {}
     family = family or _family(result)
@@ -625,6 +712,10 @@ def evidence_from_result(
         if threshold is not None:
             extra["reference_value"] = threshold
         threshold = None
+    if _position_test(result):
+        extra["null_value"] = threshold  # the share tested against; the threshold of the decision is alpha
+        threshold = _alpha(result.method)
+    threshold = _threshold(threshold)
     direction, basis = _decision(result, family, threshold, options.get("upper_bound"))
     status = _status(result)
     p_value = result.p_value
@@ -637,6 +728,11 @@ def evidence_from_result(
         extra["pulsar_status"] = result.status
     if result.test_type is not None:
         extra["test_type"] = result.test_type
+    if family == "compliance" and _rules_version(result.method) is not None:
+        extra["rules_version"] = _rules_version(result.method)
+    non_finite = isinstance(result.metric_value, float) and not math.isfinite(result.metric_value)
+    if non_finite:
+        extra["value_non_finite"] = str(result.metric_value)
     value = _jsonable(result.metric_value)
     metric = Metric(
         family=family,
@@ -646,7 +742,7 @@ def evidence_from_result(
         reference_group=result.reference_group,
         subject_metric=_subject_metric(result),
         value=value,
-        threshold=_jsonable(threshold),
+        threshold=threshold,
         direction=direction,
         decision_basis=basis,
         p_value=_number(p_value),
@@ -658,14 +754,23 @@ def evidence_from_result(
         error=result.error,
         method=result.method,
     )
+    window = Window.model_validate(window or {})
+    if _no_window(window):
+        warnings.warn(
+            f"evidence of {result.metric_name} without window start, end nor id: its evidence_id includes produced_at, "
+            "so the same finding sent again gets a new id; pass window={'id': ...} (batch, run or period id)",
+            UserWarning,
+            stacklevel=2,
+        )
+    persistence = _persistence(result, persistence)
     return Evidence(
         system_id=system_id,
         model_id=model_id,
         model_version=model_version,
         metric=metric,
-        window=Window.model_validate(window or {}),
+        window=window,
         reference=Reference.model_validate(reference or {}),
-        reliability=_reliability(result, family, status, calibration, short_reference, _persistence(result, persistence)),
+        reliability=_reliability(result, family, status, calibration, short_reference, persistence, non_finite),
         provenance=Provenance(
             producer_version=_producer_version(),
             produced_at=produced_at or datetime.now(timezone.utc),
@@ -745,11 +850,16 @@ def to_evidence(source, system_id: str, **kwargs) -> list[Evidence]:
 
 
 def dumps(records: Iterable[Evidence]) -> str:
-    """JSON array of records"""
-    return json.dumps([r.to_dict() for r in records], ensure_ascii=False)
+    """JSON array of records (strict JSON: ValueError on NaN or infinities)"""
+    return json.dumps([r.to_dict() for r in records], ensure_ascii=False, allow_nan=False)
+
+
+def _refuse_constant(name: str):
+    raise ValueError(f"evidence JSON holds {name}: NaN and infinities are not valid JSON")
 
 
 def loads(text: Union[str, bytes]) -> list[Evidence]:
-    """Records of a JSON array (or of a single JSON object)"""
-    data = json.loads(text)
+    """Records of a JSON array (or of a single JSON object); ValueError on NaN or infinities, ValidationError on an
+    evidence_id that does not match its record"""
+    data = json.loads(text, parse_constant=_refuse_constant)
     return [Evidence.from_dict(d) for d in (data if isinstance(data, list) else [data])]

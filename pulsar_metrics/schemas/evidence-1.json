@@ -278,7 +278,14 @@
             },
             {
               "items": {
-                "type": "number"
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "type": "array"
             },
@@ -287,7 +294,7 @@
             }
           ],
           "default": null,
-          "description": "Threshold or alpha; [low, high] for an acceptable zone. None: no threshold",
+          "description": "Threshold or alpha; [low, high] for an acceptable zone, a null bound being unbounded (e.g. [0.8, null]). None: no threshold",
           "title": "Threshold"
         },
         "direction": {
@@ -763,6 +770,19 @@
     "Window": {
       "description": "Current window the metric was computed on",
       "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifier of the window chosen by the caller (batch, run or period id), hashed into evidence_id; needed when the window has no start and end",
+          "title": "Id"
+        },
         "start": {
           "anyOf": [
             {
@@ -806,6 +826,7 @@
         }
       },
       "required": [
+        "id",
         "start",
         "end",
         "n_rows"
@@ -825,7 +846,7 @@
     },
     "evidence_id": {
       "default": "",
-      "description": "sha256 of the identifying content (schema major version, system, model, metric, feature, group, subject metric, window, reference): the same finding sent twice has the same id",
+      "description": "sha256 of the identifying content (schema major version, system, model, metric, feature, group, subject metric, window, reference, compliance rules version; produced_at when the window has no start, end nor id): the same finding sent twice has the same id. Checked when a record is read",
       "title": "Evidence Id",
       "type": "string"
     },

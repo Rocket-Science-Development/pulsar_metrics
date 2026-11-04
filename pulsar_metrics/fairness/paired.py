@@ -374,9 +374,10 @@ def comparative_analysis(
                 n=n,
                 threshold=0.5,
                 drift_status=position_biased,
-                method=f"share of non-tie answers choosing the first profile; binomial test against 0.5, p = {test.pvalue:.3g}; "
-                "True = the answers depend on the order (instrument control)",
+                method=f"share of non-tie answers choosing the first profile; two-sided binomial test against 0.5 at "
+                f"alpha = {alpha:g}, p = {test.pvalue:.3g}; True = the answers depend on the order (instrument control)",
                 test_type="fixed",
+                p_value=float(test.pvalue),
             )
         )
     if bool(rows.get("allow_tie", pd.Series([False])).any()):

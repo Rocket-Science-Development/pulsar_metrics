@@ -19,13 +19,14 @@ from pulsar_metrics.evidence import (
     SCHEMA_PATH,
     SCHEMA_VERSION,
     Evidence,
+    Window,
     evidence_from_analyzer,
     evidence_from_result,
     evidence_from_results,
     json_schema,
     to_evidence,
 )
-from pulsar_metrics.fairness import FairnessAnalyzer, FairnessPolicy
+from pulsar_metrics.fairness import FairnessAnalyzer, FairnessPolicy, comparative_analysis
 from pulsar_metrics.genai import ComplianceMonitor, embedding_drift, model_equality
 from pulsar_metrics.metrics.base import MetricResults
 from pulsar_metrics.metrics.drift import DriftMetric, DriftTestMetric
@@ -363,3 +364,197 @@ def test_reason_and_note_codes_are_documented(analyzer):
     for record in records:
         assert set(record.reliability.reasons) <= set(REASON_CODES)
         assert set(record.reliability.notes) <= set(NOTE_CODES)
+
+
+# ----------------------------------------------------------------------------------------------- review fixes
+LATER = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
+
+
+def psi(value=0.1, threshold=0.2, drift_status=False, **kwargs):
+    return MetricResults(
+        metric_type="drift",
+        metric_name="psi",
+        feature_name="a",
+        metric_value=value,
+        threshold=threshold,
+        drift_status=drift_status,
+        **kwargs,
+    )
+
+
+def test_records_without_window_do_not_share_an_id_across_productions():
+    """No window bounds nor id: two windows would overwrite each other at the receiver"""
+    with pytest.warns(UserWarning, match="window"):
+        first = evidence_from_result(psi(), "S", produced_at=PRODUCED)
+    with pytest.warns(UserWarning, match="window"):
+        later = evidence_from_result(psi(), "S", produced_at=LATER)
+    assert first.evidence_id != later.evidence_id
+    # with a window id (or bounds) the same finding sent again keeps its id
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        again = [evidence_from_result(psi(), "S", window={"id": "batch-42"}, produced_at=t) for t in (PRODUCED, LATER)]
+        other = evidence_from_result(psi(), "S", window={"id": "batch-43"}, produced_at=PRODUCED)
+    assert again[0].evidence_id == again[1].evidence_id != other.evidence_id
+    assert Evidence.from_json(first.to_json()).evidence_id == first.evidence_id
+
+
+def test_compliance_rule_set_version_is_part_of_the_identity():
+    rules = [{"id": "auth-first", "template": "precedence", "events": ["authenticate", "create_file"]}]
+    traces = [["authenticate", "create_file"], ["create_file"]]
+    records = []
+    for version in ("rules-v1", "rules-v2"):
+        results = ComplianceMonitor(rules, version=version).evaluate(traces)
+        records += evidence_from_results(results, "REG-0004", window={"id": "week-45"})
+    assert records[0].details["rules_version"] == "rules-v1"
+    assert records[0].evidence_id != records[1].evidence_id
+
+
+@pytest.mark.parametrize("zone, exported", [((-np.inf, np.inf), [None, None]), ((0.8, np.inf), [0.8, None])])
+def test_unbounded_fairness_zone_is_exported_with_null_bounds(zone, exported):
+    result = MetricResults(
+        metric_type="fairness",
+        metric_name="error_rate_difference",
+        feature_name="sex",
+        group="sex=F",
+        reference_group="sex=M",
+        metric_value=0.3,
+        threshold=list(zone),
+        drift_status=False,
+    )
+    record = evidence_from_result(result, "S", window={"id": "w"})
+    assert record.metric.threshold == exported and record.metric.direction == "outside"
+    assert Evidence.from_json(record.to_json()) == record
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(record.to_dict(), json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
+
+
+def test_fairness_analyzer_with_the_default_unbounded_zone_exports():
+    rng = np.random.default_rng(0)
+    n = 600
+    data = pd.DataFrame({"sex": rng.choice(["F", "M"], n), "y_true": rng.integers(0, 2, n), "y_pred": rng.integers(0, 2, n)})
+    fairness = FairnessAnalyzer(["sex"], policy=FairnessPolicy(criteria=["error_rate_difference"], n_bootstrap=50))
+    fairness.run(data)
+    records = to_evidence(fairness, "S", window={"id": "w"})
+    assert any(r.metric.name == "error_rate_difference" for r in records)
+
+
+def test_nat_window_bounds_are_missing_values():
+    assert Window(start=pd.NaT, end=pd.Timestamp("2026-01-02")).start is None
+    record = evidence_from_result(psi(), "S", window={"start": pd.NaT, "end": pd.NaT, "id": "w"})
+    assert record.window.start is None and json.loads(record.to_json())["window"]["start"] is None
+
+
+def test_failed_run_does_not_relabel_the_previous_results():
+    analyzer = run(window(300, 0.5, "2026-02-01", 6), window(600, 0.0, "2026-01-01", 7), performance=())
+    first = evidence_from_analyzer(analyzer, "S", produced_at=PRODUCED)
+    bad = window(300, 0.0, "2026-03-01", 8).assign(model_id="other_model")  # no row of the analyzer's model
+    with pytest.raises(Exception):
+        analyzer.run(current=bad, reference=window(600, 0.0, "2026-01-01", 7))
+    again = evidence_from_analyzer(analyzer, "S", produced_at=PRODUCED)
+    assert [r.window for r in again] == [r.window for r in first]
+    assert [r.evidence_id for r in again] == [r.evidence_id for r in first]
+
+
+def test_position_effect_is_exported_as_the_binomial_test_it_is():
+    from tests.test_fairness_paired import comparative_rows
+
+    results = comparative_analysis(comparative_rows(300, p_first=0.5, p_prefer_a=0.5))
+    records = {r.metric.name: r for r in evidence_from_results(results, "S", window={"id": "w"})}
+    position = records["position_effect"]
+    assert (position.metric.decision_basis, position.metric.direction, position.metric.threshold) == ("p_value", "lower", 0.05)
+    assert position.metric.p_value is not None and position.metric.p_value < 0.05 and position.metric.status == "alert"
+    assert position.details["null_value"] == 0.5
+    unusable = records["unusable_rate"]
+    assert (unusable.metric.decision_basis, unusable.metric.direction) == ("value", "upper")  # point estimate
+
+
+def test_direction_follows_the_exported_threshold():
+    record = evidence_from_result(psi(threshold=float("nan"), drift_status=None), "S", window={"id": "w"})
+    assert record.metric.threshold is None and record.metric.direction == "none" and record.metric.decision_basis == "none"
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan")])
+def test_non_finite_value_with_a_verdict_is_not_reliable(value):
+    record = evidence_from_result(psi(value=value, drift_status=True), "S", window={"id": "w"})
+    assert record.metric.value is None and record.metric.status == "alert"
+    assert not record.reliability.reliable and record.reliability.reasons == ["non_finite_value"]
+    assert record.details["value_non_finite"] == str(value)
+
+
+def test_unstable_explainability_reference_has_a_reason_code():
+    from pulsar_metrics.explain import AttributionDrift
+    from tests.test_explain import attributions
+
+    scales = [1.0, 0.98, 0.96, 0.95, 0.94, 0.93]
+    drift = AttributionDrift(k=3).fit(attributions(40, scales, seed=4))
+    results = drift.run(attributions(40, scales, seed=5))
+    record = [r for r in evidence_from_results(results, "S", window={"id": "w"}) if r.metric.name == "attribution_ndcg_at_k"][0]
+    assert record.metric.status == "no_verdict"
+    assert not record.reliability.reliable and record.reliability.reasons == ["unstable_reference"]
+
+
+def test_fairness_criteria_without_labels_are_not_evaluable():
+    rng = np.random.default_rng(0)
+    data = pd.DataFrame({"group": rng.choice(["A", "B"], 400), "y_pred": rng.integers(0, 2, 400)})
+    fairness = FairnessAnalyzer(["group"], policy=FairnessPolicy(criteria=["equal_opportunity_difference"], n_bootstrap=50))
+    fairness.run(data)
+    record = [r for r in to_evidence(fairness, "S", window={"id": "w"}) if r.metric.name == "equal_opportunity_difference"][0]
+    assert record.metric.status == "not_evaluable" and record.reliability.reasons == ["no_ground_truth"]
+
+
+def test_performance_without_a_label_column_is_not_evaluable():
+    current = window(200, 0.0, "2026-02-01", 9).drop(columns="y_true")
+    reference = window(400, 0.0, "2026-01-01", 10).drop(columns="y_true")
+    analyzer = run(current, reference, performance=("accuracy",))
+    accuracy = [r for r in evidence_from_analyzer(analyzer, "S") if r.metric.name == "accuracy"][0]
+    assert accuracy.metric.status == "not_evaluable" and accuracy.reliability.reasons == ["no_ground_truth"]
+
+
+@pytest.mark.parametrize("share, status", [(0.6, "alert"), (0.01, "ok")])
+def test_coverage_above_the_policy_maximum_alerts(share, status):
+    result = MetricResults(
+        metric_type="fairness",
+        metric_name="no_verdict_share",
+        feature_name="sex",
+        metric_value=share,
+        threshold=0.05,
+        method="disparate_impact_ratio: share of the rows outside the reference group in suppressed or inconclusive groups",
+        test_type="fixed",
+    )
+    record = evidence_from_result(result, "S", window={"id": "w"})
+    assert (record.metric.status, record.metric.direction, record.metric.decision_basis) == (status, "upper", "value")
+
+
+def test_calibration_block_reports_a_nominal_threshold_used_despite_a_calibrator():
+    rng = np.random.default_rng(0)
+    reference = pd.DataFrame({"score": rng.normal(size=3000)})
+    metric = DriftMetric("wasserstein", "score")
+    calibrator = AACalibrator(window_size=100, n_draws=99, contiguous=False).fit(reference, [metric])
+    result = metric.evaluate(pd.DataFrame({"score": rng.normal(size=100)}), reference, threshold=0.5)
+    record = evidence_from_result(result, "S", options={"threshold": 0.5}, calibrator=calibrator, window={"id": "w"})
+    assert record.reliability.calibration.method == "nominal"
+    assert record.reliability.calibration.n_draws is None
+
+
+def test_incoming_evidence_id_is_checked(analyzer):
+    data = evidence_from_analyzer(analyzer, "REG-0001")[0].to_dict()
+    tampered = {**data, "metric": {**data["metric"], "feature": "another"}}
+    with pytest.raises(ValidationError, match="evidence_id"):
+        Evidence.from_dict(tampered)
+    with pytest.raises(ValidationError, match="evidence_id"):
+        Evidence.from_json(json.dumps(tampered))
+    assert Evidence.from_dict(data).evidence_id == data["evidence_id"]
+
+
+def test_json_reader_and_writer_refuse_nan(analyzer):
+    data = evidence_from_analyzer(analyzer, "REG-0001")[0].to_dict()
+    data["metric"]["p_value"] = float("nan")
+    with pytest.raises(ValueError):
+        Evidence.from_dict(data)
+    text = json.dumps([data])  # json.dumps writes NaN by default
+    with pytest.raises(ValueError, match="NaN"):
+        ev.loads(text)
+    record = evidence_from_analyzer(analyzer, "REG-0001")[0]
+    record.metric.p_value = float("inf")  # assignment is not validated
+    with pytest.raises(ValueError):
+        ev.dumps([record])

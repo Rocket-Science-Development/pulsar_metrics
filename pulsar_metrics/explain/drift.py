@@ -140,6 +140,9 @@ class AttributionDrift:
                     ci_high=high,
                     drift_status=_at_least(threshold, low, high) if stable else None,
                     method=method,
+                    status=None if stable else "unstable_reference",
+                    reliable=None if stable else False,
+                    reliability_reason=None if stable else unstable_note.removeprefix("; "),
                     **common,
                 )
             )
