@@ -335,7 +335,10 @@ def _bind(node, keys, values):
         if atom.event:
             return node
         extra = tuple(("args", k, "bind", v) for k, v in zip(keys, values))
-        return ("atom", node[1], Atom(atom.name, False, atom.conditions + extra))
+        bound = ("atom", node[1], Atom(atom.name, False, atom.conditions + extra))
+        if len(node) == 2:  # a plain name also matches an event of that name, which is never bound
+            return ("|", ("atom", node[1], Atom(atom.name, True)), bound)
+        return bound
     return (node[0],) + tuple(_bind(child, keys, values) for child in node[1:])
 
 

@@ -602,10 +602,19 @@ class AACalibrator:
         if not np.isfinite(within) or within <= 0 or not np.isfinite(between):
             return None
         ratio = float(w * between / within)
-        if ratio > BETWEEN_WITHIN_WARNING and metric._name not in MISSINGNESS_METRICS:
+        # stationary autocorrelated traffic gives about (1 + r) / (1 - r) by itself (r: lag-1 autocorrelation in the
+        # windows): only a ratio far above that points to seasons or regimes
+        centred = chunks - means[:, None]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            r = float(np.nanmean(centred[:, 1:] * centred[:, :-1]) / np.nanmean(centred * centred))
+        r = min(max(r, 0.0), 0.99) if np.isfinite(r) else 0.0
+        expected = (1 + r) / (1 - r)
+        if ratio > BETWEEN_WITHIN_WARNING * expected and metric._name not in MISSINGNESS_METRICS:
             warnings.warn(
                 f"{metric._feature_name}: the windows of the reference differ far more than sampling noise (between / "
-                f"within-window variance ratio {ratio:.0f}, about 1 for stationary data): the A/A null of {metric._name} "
+                f"within-window variance ratio {ratio:.0f}, about {expected:.0f} for stationary data with this autocorrelation): "
+                f"the A/A null of {metric._name} "
                 "absorbs the differences between periods (season, regimes), and a drift of that size goes unseen. On "
                 "seasonal data, calibrate on and compare with the same period of the reference (period_reference)",
                 UserWarning,
@@ -775,13 +784,28 @@ class AACalibrator:
                 n_failed_draws=item["n_failed_draws"],
                 shrink_draws=calibrator.shrink_draws,
                 reliable_windows=calibrator.reliable_windows,
-                share_at_bound=item.get("share_at_bound", 0.0),
+                share_at_bound=item["share_at_bound"] if "share_at_bound" in item else _stored_share_at_bound(item),
                 between_within_ratio=item.get("between_within_ratio"),
                 window_size=calibrator.window_size,
             )
+            if "share_at_bound" not in item and null.status == STATUS_OK and null.share_at_bound > SATURATION_SHARE:
+                null.status = STATUS_SATURATED  # saved before saturation was detected
             calibrator.nulls[(null.metric_name, null.feature_name)] = null
         calibrator.errors = {(m, f): message for m, f, message in payload.get("errors", [])}
         return calibrator
+
+
+def _stored_share_at_bound(item: dict) -> float:
+    """share_at_bound of a null saved before it was recorded, from its stored draws"""
+    values = np.asarray(item["values"], dtype=float)
+    values = values[np.isfinite(values)]
+    if not len(values):
+        return 0.0
+    if item["kind"] == "pvalue":
+        return float((values <= SATURATED_PVALUE).mean())
+    if item["metric_name"] in BOUNDED_DISTANCES:
+        return float((values >= SATURATED_DIVERGENCE).mean())
+    return 0.0
 
 
 def period_reference(

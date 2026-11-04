@@ -867,7 +867,7 @@ matches an element by its name, on both forms; atom predicates read the rest of 
 | `cancel_pending_order` | an element of that name (tool or event), as before |
 | `cancel_pending_order[order_id=#W1]` | that tool with the argument equal to the value (values compared as text: `42` matches `42` and `"42"`; quote values with spaces or commas: `[reason='no longer needed']`) |
 | `cancel_pending_order[order_id]` | that tool with the argument present |
-| `cancel_pending_order[reason!=other, order_id]` | conditions joined by commas, all required |
+| `cancel_pending_order[reason!=other, order_id]` | conditions joined by commas, all required; `!=` also matches when the call has arguments but not that one (a missing `reason` is not `other`) |
 | `get_order_details[status=error]` | that tool with that status (`status` and `kind` are element fields; `args.status=...` reads an argument named status) |
 | `@user_confirmation` | an **event** of that name (never a tool) |
 | `*[status=error]`, `@*` | any tool with that status, any event |
@@ -875,7 +875,10 @@ matches an element by its name, on both forms; atom predicates read the rest of 
 Templates take a list of atoms for "any of them" (`events: ["@user_confirmation", [cancel_pending_order,
 modify_pending_order_address]]`) and two new templates: `alternate_precedence` (each b preceded by an a since the
 previous b: a confirmation before every write) and `alternate_response` (each a followed by a b before the next a).
-`bind` restricts every tool atom to one value of the named arguments at a time, the rule holding for each value:
+`bind` restricts every tool atom to one value of the named arguments at a time, the rule holding for each value (events
+are never bound: a plain atom still matches an event of its name). A rule with `@` atoms needs a collector that records
+those events (`record_event`): a rich trace cannot tell "no confirmation happened" from "confirmations are not
+recorded", and the rule then reports violations:
 
 ```yaml
 rules:

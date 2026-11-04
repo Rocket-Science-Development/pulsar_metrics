@@ -13,13 +13,14 @@ Changes recommended by the P2 lab of 3 November 2026 (TC-02, TC-04, TS-04, FA-03
 - `AACalibrator(compare_to="reference" | "window")`. A null whose A/A draws sit at the bound of the statistic in more
   than 5 % of draws (p-value underflowed to 0, psi/kl at the epsilon ceiling) gets the status `saturated`, a warning
   advising wasserstein or a reference per regime, and `reliable=False` on its results. `NullDistribution.share_at_bound`.
-- `NullDistribution.between_within_ratio`; `fit()` warns above 10 (the reference is dominated by seasonality).
+- `NullDistribution.between_within_ratio`; `fit()` warns when it is more than 10 times what
+  the within-window lag-1 autocorrelation implies (the reference is dominated by seasons or regimes).
 - `period_reference(reference, current, weeks=4, time_column=...)`: the reference rows in the same weeks of the year,
   to calibrate and compare seasonal data.
 - Optional grouping of sparse levels for chi2, psi and kl (`min_expected`, `max_levels`, also in
   `Analyzer.add_drift_metrics`), chosen on the reference and applied alike to the window and the A/A draws.
 - `MetricResults`: `reliability_reason`, `low_expected_share` (share of cells with an expected count below 5); drift
-  results fill `n`. A categorical feature above 20 % sparse cells without grouping warns.
+  results fill `n` (rows of the window, missing values included). A categorical feature above 20 % sparse cells without grouping warns.
 
 **Fairness on aggregate data (FA-03)**
 

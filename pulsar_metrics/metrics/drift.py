@@ -187,6 +187,7 @@ class _FeatureDriftMetric(AbstractMetrics):
             new = self._extract(current)
             ref = self._extract(reference)
             self._column = new
+            n_rows = len(new)  # rows of the window, missing values included, as in the A/A windows
             new, ref, info = self._clean(new, ref, nan_policy)
             value = self._raw_value(self._funcs[self._name].value(new, ref, **{**self._grouping, **kwargs}))
             constant_reference = self._name not in MISSINGNESS_METRICS and is_constant(ref)
@@ -202,7 +203,6 @@ class _FeatureDriftMetric(AbstractMetrics):
             status = status or calibration_status
             reliable = False
             reasons.append(f"calibrated null distribution {calibration_status}")
-        n_rows = len(new)
         if window_size and (n_rows * WINDOW_RATIO < window_size or n_rows > WINDOW_RATIO * window_size):
             # the null distribution, hence the threshold, depends strongly on the window size (lab TC-04: 10 to 67 rows
             # judged with thresholds calibrated on 1000)

@@ -285,3 +285,12 @@ def test_evaluate_counts_only_the_runs_a_rule_can_be_judged_on():
     # no evaluable reference run: absolute verdict
     fallback = monitor.evaluate(window, reference=[trace_from("write")])[0]
     assert fallback.p_value is None and fallback.drift_status is True
+
+
+def test_a_bound_rule_still_matches_an_event_named_by_a_plain_atom():
+    """Review: under bind, a plain atom no longer matched events, giving false violations"""
+    trace = [{"name": "user_confirmation", "kind": "event"}, {"name": "cancel", "kind": "tool", "args": {"order_id": 1}}]
+    plain = Rule(id="p", template="precedence", events=["user_confirmation", "cancel"])
+    bound = Rule(id="b", template="precedence", events=["user_confirmation", "cancel"], bind=["order_id"])
+    assert plain.verdict(trace) is True and bound.verdict(trace) is True
+    assert bound.verdict([trace[1]]) is False  # no confirmation at all

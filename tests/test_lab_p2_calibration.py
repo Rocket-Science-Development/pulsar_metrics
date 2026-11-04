@@ -276,3 +276,49 @@ def test_tc02_sparse_levels_warn_and_grouping_reaches_the_calibration():
     expected = chi2_test(column.iloc[a], column.iloc[b], min_expected=5).pvalue
     assert chi2._value(column.iloc[a], column.iloc[b]) == pytest.approx(expected)
     assert cal.nulls[("chi2", "airport")].status == "ok"
+
+
+# ---------------------------------------------------------------- review of the 0.12 changes
+def test_window_size_counts_window_rows_missing_values_included():
+    """Review: the window-size check counted non-missing values, so a 200-row window with 70 % NaN was 'unreliable'"""
+    rng = np.random.default_rng(7)
+    reference = pd.DataFrame({"x": rng.normal(size=6000)})
+    with quiet():
+        cal = AACalibrator(window_size=200, n_draws=100).fit(reference, [DriftMetric("wasserstein", "x")])
+    current = pd.DataFrame({"x": np.where(rng.random(200) < 0.7, np.nan, rng.normal(size=200))})
+    analyzer = Analyzer(name="m", model_id="m1", model_version="1")
+    analyzer.add_drift_metrics(metrics_list=["wasserstein"], features_list=["x"])
+    with quiet():
+        analyzer.run(current=tagged(current, "2027-01-01"), reference=tagged(reference), options=cal.options())
+    row = analyzer.results_to_pandas().query("metric_type == 'drift'").iloc[0]
+    assert bool(row.reliable) and row.n == 200
+
+
+def test_stationary_autocorrelated_traffic_does_not_warn_of_seasons():
+    """Review: AR(1) traffic with phi = 0.9 gives a between/within ratio of about 19 by itself"""
+    rng = np.random.default_rng(8)
+    x = np.zeros(20000)
+    for t in range(1, len(x)):
+        x[t] = 0.9 * x[t - 1] + rng.normal()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cal = AACalibrator(window_size=1000, n_draws=50).fit(pd.DataFrame({"x": x}), [DriftMetric("wasserstein", "x")])
+    assert cal.nulls[("wasserstein", "x")].between_within_ratio > 10
+    assert not [w for w in caught if "period_reference" in str(w.message)]
+
+
+def test_a_saturated_null_saved_before_0_12_is_flagged_on_load(tmp_path):
+    """Review: files saved before share_at_bound existed loaded with status ok"""
+    with quiet():
+        cal = AACalibrator(window_size=1000, n_draws=200).fit(monthly_regimes(), [DriftTestMetric("ks_2samp", "rate")])
+    path = tmp_path / "cal.json"
+    cal.save(path)
+    import json
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    for item in payload["nulls"]:
+        item.pop("share_at_bound"), item.pop("between_within_ratio", None)
+        item["status"] = "ok"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    null = AACalibrator.load(path).nulls[("ks_2samp", "rate")]
+    assert null.share_at_bound > 0.05 and null.status == STATUS_SATURATED
