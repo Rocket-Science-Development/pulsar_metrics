@@ -54,3 +54,13 @@ def test_mmd_groups_subsample_whole_groups_and_check_their_shape():
         mmd_test(x, y, groups=gx)
     with pytest.raises(error_msg):
         mmd_test(x, y, groups=(np.zeros(len(x)), gy))  # a single group in the reference
+
+
+def test_mmd_group_subsampling_keeps_two_groups_when_one_exceeds_max_samples():
+    """Groups larger than max_samples: two whole groups are kept, not one (which made the test fail)"""
+    rng = np.random.default_rng(4)
+    (x, gx), (y, gy) = _runs(rng, 4, passages=30), _runs(rng, 4, passages=30)
+    result = mmd_test(x, y, n_permutations=20, max_samples=20, groups=(gx, gy))
+    assert result.n_reference == 60 and result.n_current == 60
+    with pytest.raises(error_msg, match="reference holds 1"):
+        mmd_test(x, y, groups=(np.zeros(len(x)), gy))

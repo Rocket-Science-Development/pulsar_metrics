@@ -127,12 +127,13 @@ def _check_groups(groups, x: np.ndarray, y: np.ndarray):
 
 
 def _subsample_groups(x, codes, max_samples, rng):
-    """Whole groups drawn at random until the window holds at most max_samples rows (at least one group)"""
+    """Whole groups drawn at random until the window holds at most max_samples rows; at least two groups are kept,
+    even when they exceed max_samples (the test needs two groups per window)"""
     if max_samples is None or len(x) <= max_samples:
         return x, codes
     sizes = np.bincount(codes)
     order = rng.permutation(len(sizes))
-    keep = order[: max(1, int(np.searchsorted(np.cumsum(sizes[order]), max_samples, side="right")))]
+    keep = order[: max(2, int(np.searchsorted(np.cumsum(sizes[order]), max_samples, side="right")))]
     mask = np.isin(codes, keep)
     return x[mask], np.unique(codes[mask], return_inverse=True)[1]
 
@@ -180,18 +181,22 @@ def mmd_test(
         subsampling keeps or drops whole groups. Needed when the rows of a unit are correlated: the passages of one
         run (top k of the same query, often the same article) are, and permuting them as independent rows gave 42 to
         44 % false alarms instead of 5 % in the lab (LR-03, windows of 100 runs). Default None: rows are the units.
-        The alternative is one row per unit (e.g. the top passage of each run).
+        The alternative is one row per unit (e.g. the top passage of each run). The test is valid when the groups are
+        exchangeable between the windows, their sizes included: if the windows differ in how many rows their groups
+        hold (e.g. 3 passages per run before, 10 now), the sizes alone can make the test reject. Each window needs at
+        least two groups; the subsampling keeps at least two, even when they hold more than max_samples rows.
     """
     rng = np.random.default_rng(seed)
     x, y = _check(reference, current)
     if groups is not None:
         cx, cy = _check_groups(groups, x, y)
+        for name, c in (("reference", cx), ("current", cy)):
+            if c.max() + 1 < 2:
+                raise error_msg(value=None, message=f"at least 2 groups are needed in each window: the {name} holds 1")
         x, cx = _subsample_groups(x, cx, max_samples, rng)
         y, cy = _subsample_groups(y, cy, max_samples, rng)
         n_reference_groups = int(cx.max()) + 1
         codes = np.concatenate([cx, cy + n_reference_groups])
-        if n_reference_groups < 2 or cy.max() + 1 < 2:
-            raise error_msg(value=None, message="at least 2 groups are needed in each window")
     else:
         x, y = _subsample(x, y, max_samples, rng)
     x, y = _project(x, y, n_components)
