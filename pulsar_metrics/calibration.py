@@ -824,9 +824,9 @@ def period_reference(
         start, end = times.min(), times.max()
     else:
         start = end = pd.Timestamp(current)
-    ref_days = pd.to_datetime(reference[time_column], format="mixed").dt.dayofyear.to_numpy()
+    ref_days = pd.to_datetime(reference[time_column], format="mixed").dt.day_of_year.to_numpy()
     margin = 7 * weeks
-    low, high = start.dayofyear - margin, start.dayofyear + (end - start).days + margin
+    low, high = start.day_of_year - margin, start.day_of_year + (end - start).days + margin
     if high - low >= 365:
         return reference
     # day of year on a circle: a window in early January matches late December of the reference

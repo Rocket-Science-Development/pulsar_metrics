@@ -161,7 +161,7 @@ def test_ts04_default_null_compares_a_window_with_the_rest_of_the_reference():
 def test_ts04_seasonal_reference_warns_between_window_variance():
     days = pd.date_range("2011-01-01", "2011-12-31 23:00", freq="h")
     rng = np.random.default_rng(4)
-    season = 100 + 60 * np.sin(2 * np.pi * (days.dayofyear.to_numpy() - 100) / 365)
+    season = 100 + 60 * np.sin(2 * np.pi * (days.day_of_year.to_numpy() - 100) / 365)
     reference = pd.DataFrame({"cnt": season + rng.normal(0, 20, len(days)), "pred_timestamp": days})
     with pytest.warns(UserWarning, match="period_reference"):
         cal = AACalibrator(window_size=168, n_draws=100).fit(reference, [DriftMetric("wasserstein", "cnt")])
@@ -193,7 +193,7 @@ def test_ts04_period_reference_restores_detection_of_growth_on_seasonal_data():
     # hourly rentals: daily cycle, strong season, +40 rides/h in 2012 (smaller than the seasonal swing)
     days = pd.date_range("2011-01-01", "2012-12-31 23:00", freq="h")
     rng = np.random.default_rng(5)
-    season = 100 + 80 * np.sin(2 * np.pi * (days.dayofyear.to_numpy() - 100) / 365)
+    season = 100 + 80 * np.sin(2 * np.pi * (days.day_of_year.to_numpy() - 100) / 365)
     daily = 40 * np.sin(2 * np.pi * days.hour.to_numpy() / 24)
     growth = np.where(days.year == 2012, 40.0, 0.0)
     data = tagged(pd.DataFrame({"cnt": season + daily + growth + rng.normal(0, 20, len(days))}))
