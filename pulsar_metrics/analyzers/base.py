@@ -70,6 +70,7 @@ class AbstractAnalyzer(ABC):
         self._metrics_list = []
         self._missing_values: dict = {}  # column -> sentinel values turned into NaN before the analysis
         self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
+        self._window_info: dict = {}  # rows and period of the last run's windows (pulsar_metrics.evidence)
         self._results = None
 
     @property
@@ -263,15 +264,6 @@ class Analyzer(AbstractAnalyzer):
         # format="mixed": timestamps from a store often mix precisions (with or without fractional seconds)
         df_current["pred_timestamp"] = pd.to_datetime(df_current["pred_timestamp"], format="mixed")
 
-        self._metadata.update(
-            {
-                "period_start": df_current.pred_timestamp.min(),
-                "period_end": df_current.pred_timestamp.max(),
-                "eval_timestamp": datetime.now(),
-                "options": options,
-            }
-        )
-
         if not self._metrics_list:
             raise error_msg(
                 value=None,
@@ -288,6 +280,21 @@ class Analyzer(AbstractAnalyzer):
                 message=self._metadata_error("current", current, cur_model_id_validation, cur_model_version_validation),
             )
         else:
+            # the period and sizes of this run replace the previous ones only once the windows are accepted: a run
+            # refused above leaves the previous results with their own window
+            self._metadata.update(
+                {
+                    "period_start": df_current.pred_timestamp.min(),
+                    "period_end": df_current.pred_timestamp.max(),
+                    "eval_timestamp": datetime.now(),
+                    "options": options,
+                }
+            )
+            self._window_info = {
+                "n_current": int(df_current.shape[0]),
+                "n_reference": int(df_reference.shape[0]),
+                **self._reference_period(df_reference),
+            }
             # A failing metric does not stop the run: it is recorded with its error and no value or status
             self._results = []
             # Summary statistics. Recommended all features for users (by default) otherwise configurable based on perferences
@@ -319,6 +326,16 @@ class Analyzer(AbstractAnalyzer):
                     logger.warning("Metric %s failed: %s", metric._name, e)
                     self._results.append(self._failed_result(metric, e))
 
+    @staticmethod
+    def _reference_period(reference: pd.DataFrame) -> dict:
+        """First and last pred_timestamp of the reference (empty when it has none or they do not parse)"""
+        if "pred_timestamp" not in reference.columns or reference.empty:
+            return {}
+        timestamps = pd.to_datetime(reference["pred_timestamp"], format="mixed", errors="coerce")
+        if timestamps.isna().all():
+            return {}
+        return {"reference_start": timestamps.min(), "reference_end": timestamps.max()}
+
     def _mask_missing(self, data: pd.DataFrame) -> pd.DataFrame:
         columns = [c for c in self._missing_values if c in data.columns]
         if not columns:
@@ -340,9 +357,12 @@ class Analyzer(AbstractAnalyzer):
 
     @staticmethod
     def _failed_result(metric, error: Exception) -> MetricResults:
-        """Result recorded for a metric that could not be computed"""
+        """Result recorded for a metric that could not be computed (n_labelled=0 when the labels are missing)"""
+        labels = {}
         if isinstance(metric, PerformanceMetric):
             metric_type = MetricsType.performance.value
+            if NO_GROUND_TRUTH in str(error):
+                labels = {"n_labelled": 0, "label_coverage": 0.0}
         elif isinstance(metric, (DriftMetric, DriftTestMetric)):
             metric_type = MetricsType.drift.value
         else:
@@ -352,4 +372,5 @@ class Analyzer(AbstractAnalyzer):
             metric_name=metric._name,
             feature_name=getattr(metric, "_feature_name", None),
             error=str(error),
+            **labels,
         )

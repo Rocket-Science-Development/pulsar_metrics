@@ -472,7 +472,7 @@ class FairnessAnalyzer:
             )
         for name in self.policy.criteria:
             if not self._computable(name, groups[reference]):
-                results.append(self._skipped(name, feature, labels[reference]))
+                results.append(self._skipped(name, feature, labels[reference], groups[reference]))
                 continue
             judged = [k for k in kept if k != reference and (declared is None or k in declared)]
             exploratory = [k for k in kept if k != reference and declared is not None and k not in declared]
@@ -596,7 +596,10 @@ class FairnessAnalyzer:
         needs_scores = name != EQUALIZED_ODDS and CRITERIA[name].needs_scores
         return not ((needs_labels and y_true is None) or (needs_scores and score is None))
 
-    def _skipped(self, name, feature, reference_label):
+    def _skipped(self, name, feature, reference_label, arrays):
+        """Criterion that cannot be computed: n_labelled=0 when it needs labels and there are none"""
+        y_true = arrays[1]
+        needs_labels = name == EQUALIZED_ODDS or CRITERIA[name].needs_labels
         return MetricResults(
             metric_type="fairness",
             metric_name=name,
@@ -604,6 +607,7 @@ class FairnessAnalyzer:
             reference_group=reference_label,
             error=f"{name} needs {'labels and scores' if name in ('calibration_difference',) else 'labels'}",
             test_type="fixed",
+            n_labelled=0 if needs_labels and y_true is None else None,
         )
 
     def _disparity(self, name: str, group: tuple, reference: tuple) -> float:

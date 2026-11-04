@@ -448,6 +448,62 @@ are ignored.
 
 The cost is a delay of `windows - 1` windows before a lasting drift is confirmed.
 
+## Evidence records (stable export format)
+
+`MetricResults` is the in-memory result of an analysis. To hand results over to another system (an audit trail, a
+central monitoring or governance service) without that system depending on pulsar-metrics, `pulsar_metrics.evidence`
+turns them into **evidence records**: one finding about one monitored system, in a versioned, typed and
+self-describing JSON format, `"pulsar.evidence/1"`, described by a JSON Schema shipped with the package
+(`pulsar_metrics/schemas/evidence-1.json`).
+
+```python
+from pulsar_metrics.evidence import to_evidence
+
+records = to_evidence(
+    analyzer,  # after run(); also a FairnessAnalyzer, one MetricResults or a list of them
+    system_id="SYS-0042",  # your identifier of the monitored system (e.g. its entry in an inventory of AI systems)
+    reference_id="holdout-2026-01",
+    calibrator=calibrator,  # optional: AACalibrator behind the thresholds
+    persistence=persistence,  # optional: DriftPersistence after this window
+)
+payload = [r.to_dict() for r in records]  # JSON-ready; Evidence.from_json / from_dict read them back
+```
+
+| Field | Meaning |
+|---|---|
+| `schema_version` | `"pulsar.evidence/1"` |
+| `evidence_id` | sha256 of the identifying content (system, model, metric family and name, feature, group, subject metric, window, reference, and the rules version of compliance records): the same finding sent twice has the same id, so a receiver can deduplicate; a recomputation of the same window keeps the id (keep the latest `produced_at`). A window with no `start`, `end` nor `id` cannot tell two windows apart: `produced_at` is then hashed too and the converters warn, so pass `window={"id": ...}` (batch, run or period id) for results without timestamps (fairness, compliance, GenAI tests). `from_dict` / `from_json` recompute the id and refuse a record whose id does not match its content |
+| `system_id`, `model_id`, `model_version` | Monitored system (identifier supplied by the user) and model |
+| `metric` | `family` (`drift`, `performance`, `fairness`, `genai`, `compliance`, `data_quality`, `explainability`, `custom`), `name`, `feature`, `group` / `reference_group` (fairness), `subject_metric`, `value`, `threshold` (number or `[low, high]`, a `null` bound being unbounded), `direction` (`upper`: alert above, `lower`: alert below, `outside`: alert outside the zone, `none`), `decision_basis` (`value`, `p_value`, `confidence_interval`, `reference_test`, `sequential_test`), `p_value`, `ci_low` / `ci_high`, `e_value`, `n`, `status`, `error`, `method` |
+| `metric.status` | `ok`, `alert` (drift, degradation, disparity or violation detected), `no_verdict` (no threshold, inconclusive), `not_evaluable` (suppressed group, no ground truth, rule not evaluable), `error` |
+| `window`, `reference` | `id` (yours, optional), `start`, `end` (UTC, ISO 8601; NaT is read as missing), `n_rows` |
+| `reliability` | `reliable` (bool), `reasons` (codes that make it false), `notes` (codes that lower the confidence only), `reason_text` (Pulsar's message), `calibration` (`method`: `aa_calibration`, `nominal` or `none`; `null_status`, `window_size`, `quantile`, reference windows, draws, share at bound, 90 % interval of the threshold, empirical p-value, p-value floor), `persistence` (`windows`, `drift_streak`, `no_drift_streak`, `confirmed`, `changed`), `quality` (missing shares, `low_expected_share`, `n_labelled`, `label_coverage`, `suppressed`) |
+| `provenance` | `producer` (`pulsar-metrics`), `producer_version`, `produced_at` (UTC), `run_name` |
+| `details` | Free aggregates (e.g. `conf_int`, `reference_value` of summary statistics). **Aggregates only, never raw rows, texts or personal data**; capped at 64 KiB |
+
+Reliability codes (`REASON_CODES`, `NOTE_CODES` in the module):
+
+- `reasons`, `reliable` is then `false`: `computation_error`, `no_ground_truth`, `insufficient_labels`,
+  `few_labelled_rows`, `constant_reference`, `saturated_null`, `degenerate_null`, `window_size_mismatch`,
+  `short_reference`, `suppressed_group`, `rule_not_evaluable`, `instrument_unusable`, `flagged_unreliable`,
+  `non_finite_value` (NaN or infinite value, exported as `null`), `unstable_reference` (explainability);
+- `notes`: `nominal_threshold`, `no_threshold`, `sparse_cells`, `missing_values_set_aside`, `partial_label_coverage`,
+  `drift_not_confirmed`, `ecological_inference`, `small_canary`.
+
+`reliable` is stricter than `MetricResults.reliable`: it is also false for a failed or not evaluable metric and for a
+constant reference. `metric.status` is the verdict of the window itself; with `persistence`, `confirmed` says whether
+the alert has lasted (`drift_not_confirmed` otherwise). Records are strict JSON: NaN and infinities are refused by
+the models, `loads()` and `dumps()`.
+
+**Compatibility.** Additive changes keep `"pulsar.evidence/1"`: a new optional field, a new code or family, a new key
+of `details`. Readers must ignore unknown fields and treat unknown codes as unknown (`Evidence.from_json` does). Any
+other change (field removed, renamed or retyped, meaning of a value changed, identity fields of `evidence_id` changed)
+is breaking and moves to `"pulsar.evidence/2"`. The committed schema is checked against the model by the tests;
+regenerate it with `python -c "from pulsar_metrics.evidence import write_json_schema; write_json_schema()"`.
+
+To send the records over HTTPS with local buffering and retries, see `EvidenceOutbox` in
+[pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection).
+
 ## Monitoring LLM applications and agents
 
 [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection) turns OpenTelemetry
@@ -908,7 +964,7 @@ was judged on (`n`, the method says how many were not) and gives `status="not_ev
 the confirmation rule over tool names flags all 36; with `@user_confirmation` on the rich traces it flags the 23 real
 violations, and on the name-only traces it is not evaluable on all 40.
 
-#### Known limits (night lab, TX-02, IM-02, LM-01, LI-03 and LS-01)
+#### Known limits (night lab, TX-02, IM-02, LM-01, LI-03, LS-01 and LR-03)
 
 | Limit | Lab figure | What the code does now |
 |---|---|---|
@@ -916,6 +972,7 @@ violations, and on the name-only traces it is not evaluable on all 40.
 | MMD misses a small share of foreign texts | 5 % of English texts among French reviews: power 0.40 at 300, 0.05 at 100 | `novelty_test`: on the synthetic replica, 0.8 at 300 and 0.5 at 100 (MMD: 0.2 and 0.15), and the foreign texts are named. Still to be confirmed on the lab's embeddings |
 | The encoder and the PCA matter | power by PCA components (none / 8 / 32 / 128): 0.05 / 0.50 / 0.55 / 0.20; nomic-embed-text 0.25 (polarity) and 0.90 (5 % English) | `n_components` (32) and `bandwidth` are exposed; measure with `detection_power` before choosing |
 | Cost of `mmd_test` at the default cap | 1000 x 1000 texts, 500 permutations: 11 to 18 s | vectorized permutations and eigendecomposition PCA: 0.7 s |
+| Correlated rows of one unit break the permutation test | passages retrieved by a RAG agent (2 per run, top 2 of the same query) permuted as independent rows: 41 to 43 % A/A false alarms on windows of 100 runs (LR-03 replay, 2,000 draws) | `mmd_test(..., groups=(reference_groups, current_groups))` (also through `embedding_drift`) permutes and subsamples whole groups: 5.0 % [4.3, 5.8] on 3,000 draws. One row per run (its top passage) holds the level too. Without `groups`, results are unchanged |
 | MMD on pixels needs large image windows | 3 corruptions of 15 need more than 50 images for 80 % power; 7 of 15 missed at 20 images | `detection_power` sizes the window on your own images; an image encoder (embeddings instead of pixels) is the stronger lever and is left to the user |
 | A change of quantization is missed by the default canary | llama3.2 3B q4_K_M vs q8_0: detected 20 % at 12 prompts x 5 answers, 40 % at 24 x 5, 60 % at 48 x 5, 100 % at 48 x 10 (5 runs per cell; the 480 figure has a 95 % lower bound near 0.5) | `RECOMMENDED_CANARY` (48 x 10), `model_equality_power` on a pilot, `min_answers=480` for an explicit "inconclusive"; the default canary size of the probe lives in pulsar-data-collection |
 | Rules violated at a stable rate alert in every window | auth-before-file 9 windows of 10 (6.0 % against 7.2 % in the reference), amount-after-eligibility 10 of 10 (29.7 % against 28.9 %) | `evaluate(reference=...)` |

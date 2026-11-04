@@ -96,6 +96,7 @@ class DriftPersistence:
                 state["confirmed"] = True
             elif state["no_drift_streak"] >= self.windows:
                 state["confirmed"] = False
+            state["changed"] = state["confirmed"] != previous
 
             verdicts.append(
                 PersistentDrift(
