@@ -18,13 +18,31 @@ All notable changes to pulsar-metrics. The format follows [Keep a Changelog](htt
 - `mmd_test` and `embedding_drift(test="mmd")` accept `groups=(reference_groups, current_groups)`: permutations and
   subsampling move whole groups of rows (for example the passages retrieved by one agent run) instead of rows taken
   as independent. On the LR-03 replay (windows of 100 runs), the A/A false-alarm rate of MMD on retrieved passages
-  goes from 41–43 % to 5.0 % [4.3; 5.8]. Without `groups`, behaviour and p-values are unchanged.
+  goes from 41–43 % to 5.0 % [4.3; 5.8]. Without `groups`, behaviour and p-values are unchanged. The test assumes the
+  groups are exchangeable between the windows, sizes included; the subsampling keeps at least two whole groups per
+  window (even above `max_samples`), and a window with a single group is refused with a message that says so.
+- Review of the evidence export before release: `window.id` (optional, hashed) for results without timestamps; a
+  record with no window start, end nor id hashes `produced_at` too, with a `UserWarning`, so two windows no longer
+  share an id; the rules version of compliance records is hashed (`details.rules_version`); `from_dict` / `from_json`
+  recompute `evidence_id` and refuse a mismatch; NaN and infinities are refused by the models, `loads()` and
+  `dumps()`; a zone bound may be `null` (unbounded: the default zone of `error_rate_difference` no longer breaks the
+  export); NaT window bounds are read as missing; the direction follows the exported threshold (a NaN threshold gives
+  `none`); `position_effect` is exported as its two-sided binomial test (`p_value` basis, threshold alpha, p-value,
+  `details.null_value` 0.5); `unusable_rate` is decided on its `value`; `no_verdict_share` above the policy maximum
+  is an `alert`; the calibration block reports `nominal` when the threshold used is not the calibrated one; new reason
+  codes `non_finite_value` and `unstable_reference`; fairness criteria and performance metrics without labels are
+  `not_evaluable` with `no_ground_truth`.
 
 ### Changed
 
 - The Analyzer keeps the window and reference sizes and bounds of its last run (`_window_info`), and
   `DriftPersistence` keeps whether the last window changed the streak (`changed`), for the evidence export. The
-  columns of `results_to_pandas` are unchanged.
+  columns of `results_to_pandas` are unchanged. A run refused for its windows (no row of the model) no longer
+  replaces the period of the previous results.
+- Results that feed the export: `position_effect` carries the `p_value` of its binomial test and alpha in `method`;
+  the NDCG and Jaccard results of `AttributionDrift` on an unstable reference have `status="unstable_reference"` and
+  `reliable=False`; a fairness criterion skipped for lack of labels, and a performance metric without a label column,
+  carry `n_labelled=0`.
 
 ## [0.12.0] - 2026-11-04
 

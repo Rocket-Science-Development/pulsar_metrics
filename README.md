@@ -472,11 +472,11 @@ payload = [r.to_dict() for r in records]  # JSON-ready; Evidence.from_json / fro
 | Field | Meaning |
 |---|---|
 | `schema_version` | `"pulsar.evidence/1"` |
-| `evidence_id` | sha256 of the identifying content (system, model, metric family and name, feature, group, subject metric, window, reference): the same finding sent twice has the same id, so a receiver can deduplicate; a recomputation of the same window keeps the id (keep the latest `produced_at`) |
+| `evidence_id` | sha256 of the identifying content (system, model, metric family and name, feature, group, subject metric, window, reference, and the rules version of compliance records): the same finding sent twice has the same id, so a receiver can deduplicate; a recomputation of the same window keeps the id (keep the latest `produced_at`). A window with no `start`, `end` nor `id` cannot tell two windows apart: `produced_at` is then hashed too and the converters warn, so pass `window={"id": ...}` (batch, run or period id) for results without timestamps (fairness, compliance, GenAI tests). `from_dict` / `from_json` recompute the id and refuse a record whose id does not match its content |
 | `system_id`, `model_id`, `model_version` | Monitored system (identifier supplied by the user) and model |
-| `metric` | `family` (`drift`, `performance`, `fairness`, `genai`, `compliance`, `data_quality`, `explainability`, `custom`), `name`, `feature`, `group` / `reference_group` (fairness), `subject_metric`, `value`, `threshold` (number or `[low, high]`), `direction` (`upper`: alert above, `lower`: alert below, `outside`: alert outside the zone, `none`), `decision_basis` (`value`, `p_value`, `confidence_interval`, `reference_test`, `sequential_test`), `p_value`, `ci_low` / `ci_high`, `e_value`, `n`, `status`, `error`, `method` |
+| `metric` | `family` (`drift`, `performance`, `fairness`, `genai`, `compliance`, `data_quality`, `explainability`, `custom`), `name`, `feature`, `group` / `reference_group` (fairness), `subject_metric`, `value`, `threshold` (number or `[low, high]`, a `null` bound being unbounded), `direction` (`upper`: alert above, `lower`: alert below, `outside`: alert outside the zone, `none`), `decision_basis` (`value`, `p_value`, `confidence_interval`, `reference_test`, `sequential_test`), `p_value`, `ci_low` / `ci_high`, `e_value`, `n`, `status`, `error`, `method` |
 | `metric.status` | `ok`, `alert` (drift, degradation, disparity or violation detected), `no_verdict` (no threshold, inconclusive), `not_evaluable` (suppressed group, no ground truth, rule not evaluable), `error` |
-| `window`, `reference` | `start`, `end` (UTC, ISO 8601), `n_rows`; the reference also has the `id` you give |
+| `window`, `reference` | `id` (yours, optional), `start`, `end` (UTC, ISO 8601; NaT is read as missing), `n_rows` |
 | `reliability` | `reliable` (bool), `reasons` (codes that make it false), `notes` (codes that lower the confidence only), `reason_text` (Pulsar's message), `calibration` (`method`: `aa_calibration`, `nominal` or `none`; `null_status`, `window_size`, `quantile`, reference windows, draws, share at bound, 90 % interval of the threshold, empirical p-value, p-value floor), `persistence` (`windows`, `drift_streak`, `no_drift_streak`, `confirmed`, `changed`), `quality` (missing shares, `low_expected_share`, `n_labelled`, `label_coverage`, `suppressed`) |
 | `provenance` | `producer` (`pulsar-metrics`), `producer_version`, `produced_at` (UTC), `run_name` |
 | `details` | Free aggregates (e.g. `conf_int`, `reference_value` of summary statistics). **Aggregates only, never raw rows, texts or personal data**; capped at 64 KiB |
@@ -485,13 +485,15 @@ Reliability codes (`REASON_CODES`, `NOTE_CODES` in the module):
 
 - `reasons`, `reliable` is then `false`: `computation_error`, `no_ground_truth`, `insufficient_labels`,
   `few_labelled_rows`, `constant_reference`, `saturated_null`, `degenerate_null`, `window_size_mismatch`,
-  `short_reference`, `suppressed_group`, `rule_not_evaluable`, `instrument_unusable`, `flagged_unreliable`;
+  `short_reference`, `suppressed_group`, `rule_not_evaluable`, `instrument_unusable`, `flagged_unreliable`,
+  `non_finite_value` (NaN or infinite value, exported as `null`), `unstable_reference` (explainability);
 - `notes`: `nominal_threshold`, `no_threshold`, `sparse_cells`, `missing_values_set_aside`, `partial_label_coverage`,
   `drift_not_confirmed`, `ecological_inference`, `small_canary`.
 
 `reliable` is stricter than `MetricResults.reliable`: it is also false for a failed or not evaluable metric and for a
 constant reference. `metric.status` is the verdict of the window itself; with `persistence`, `confirmed` says whether
-the alert has lasted (`drift_not_confirmed` otherwise).
+the alert has lasted (`drift_not_confirmed` otherwise). Records are strict JSON: NaN and infinities are refused by
+the models, `loads()` and `dumps()`.
 
 **Compatibility.** Additive changes keep `"pulsar.evidence/1"`: a new optional field, a new code or family, a new key
 of `details`. Readers must ignore unknown fields and treat unknown codes as unknown (`Evidence.from_json` does). Any
