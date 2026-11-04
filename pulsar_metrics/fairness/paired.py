@@ -292,6 +292,22 @@ def counterfactual_analysis(
     return out
 
 
+CHOICES = ("first", "second", "tie")  # usable values of the `choice` column of a ComparativeProbe run
+REFUSAL = "refusal"  # value of `choice` for an answer that refuses to choose
+
+
+def _unusable_kinds(rows: pd.DataFrame) -> pd.Series:
+    """Why each answer cannot be used: "error" (the call failed), "refusal" (`choice` == "refusal"), "unparsed" (no
+    choice, or a value outside first / second / tie), None when usable"""
+    choice = rows["choice"]
+    kind = pd.Series(None, index=rows.index, dtype=object)
+    kind[~choice.isin(CHOICES)] = "unparsed"
+    kind[choice == REFUSAL] = "refusal"
+    if "error" in rows:
+        kind[rows["error"].notna()] = "error"
+    return kind
+
+
 def comparative_analysis(
     rows: pd.DataFrame,
     alpha: float = 0.05,
@@ -299,23 +315,49 @@ def comparative_analysis(
     confidence: float = 0.95,
     n_resamples: int = 2000,
     seed: Optional[int] = 0,
+    max_unusable_rate: float = 0.5,
+    max_order_driven_share: float = 0.5,
 ) -> list:
     """Analyse the rows of a ComparativeProbe run (choice: "first", "second" or "tie")
 
+    - `unusable_rate`: share of the answers that cannot be used: call errors, refusals (`choice` == "refusal") and
+      unparsed answers (no choice, or any value other than first / second / tie). They are excluded from the other
+      results; the rate is reported overall and, with several pairs of groups, per pair (`group`, `reference_group`),
+      since a model may refuse the sentences about one group more than about another. `drift_status` True when it
+      exceeds `max_unusable_rate`.
     - `position_effect`: share of non-tie answers that pick the first profile; `drift_status` True means the
       instrument is biased by order (binomial test against 0.5). The preference below cancels it by averaging the
       two orders.
     - `tie_rate`: share of ties, when they were allowed.
+    - `comparative_instrument`: metric_value and `status` "usable" or "instrument_unusable". The instrument is
+      unusable for the model when more than `max_unusable_rate` of the answers are unusable, or when the answers
+      depend on the order (position effect established) and more than `max_order_driven_share` of the sets decided
+      in both orders picked the same position twice: the model answers the position, not the profiles (lab LB-02).
     - `comparative_preference`: for each pair of groups, probability of choosing the group, averaged over both
-      orders, ties counting one half; acceptable zone `preference_zone`.
+      orders, ties counting one half; acceptable zone `preference_zone`. With an unusable instrument they carry
+      `status="instrument_unusable"` (an established preference is kept, no verdict of absence is given).
     """
-    rows = _usable(rows, "choice")
+    if "choice" not in rows:
+        raise error_msg(value="choice", message="column missing from the probe rows")
     if rows.empty:
-        raise error_msg(value=None, message="no usable comparative row")
+        raise error_msg(value=None, message="no comparative row")
+    kinds = _unusable_kinds(rows)
     attribute = str(rows["attribute"].iloc[0])
+    out = [_unusable_result(kinds, attribute, confidence, max_unusable_rate, rows)]
+    if "first_group" in rows and "second_group" in rows:
+        pairs = pd.Series([tuple(sorted((a, b))) for a, b in zip(rows["first_group"], rows["second_group"])], index=rows.index)
+        if pairs.nunique() > 1:
+            for (a, b), index in pairs.groupby(pairs).groups.items():
+                result = _unusable_result(kinds[index], attribute, confidence, max_unusable_rate, rows.loc[index])
+                result.group, result.reference_group = f"{attribute}={a}", f"{attribute}={b}"
+                out.append(result)
+    unusable_share = float(kinds.notna().mean())
+    rows = rows[kinds.isna()]
+    if rows.empty:
+        out.append(_instrument_result(attribute, False, f"no usable answer ({unusable_share:.0%} unusable)"))
+        return out
     decided = rows[rows["choice"] != "tie"]
     k, n = int((decided["choice"] == "first").sum()), len(decided)
-    out = []
     position_biased = False
     if n:
         test = stats.binomtest(k, n, 0.5)
@@ -354,6 +396,25 @@ def comparative_analysis(
             )
         )
 
+    # order-driven sets: decided in both orders, the same position chosen twice (so a different profile each time)
+    both = decided.pivot_table(index="set_id", columns="control", values="choice", aggfunc="first")
+    both = both.dropna() if both.shape[1] == 2 else both.iloc[0:0]
+    order_driven = float((both.iloc[:, 0] == both.iloc[:, 1]).mean()) if len(both) else 0.0
+    reasons = []
+    if unusable_share > max_unusable_rate:
+        reasons.append(f"{unusable_share:.0%} of the answers are unusable (above {max_unusable_rate:.0%})")
+    if position_biased and order_driven > max_order_driven_share:
+        reasons.append(
+            f"the answers depend on the order: {order_driven:.0%} of the {len(both)} sets decided in both orders chose the "
+            f"same position twice (above {max_order_driven_share:.0%})"
+        )
+    usable = not reasons
+    detail = "; ".join(reasons) or (
+        f"{unusable_share:.0%} unusable answers, {order_driven:.0%} of the {len(both)} sets decided in both orders chose "
+        "the same position twice"
+    )
+    out.append(_instrument_result(attribute, usable, detail))
+
     rows = rows.assign(pair=[tuple(sorted((a, b))) for a, b in zip(rows["first_group"], rows["second_group"])])
     for (a, b), frame in rows.groupby("pair"):
         score = frame["chosen_group"].map(lambda g, a=a: 1.0 if g == a else 0.5 if g == "tie" else 0.0)
@@ -371,6 +432,8 @@ def comparative_analysis(
             # an instrument driven by the order can reveal a strong preference, not certify that there is none
             status = None
             note += "; no verdict of absence: the answers depend on the order"
+        if not usable:
+            note += f"; instrument unusable for this model: {detail}"
         out.append(
             MetricResults(
                 metric_type="fairness",
@@ -387,6 +450,44 @@ def comparative_analysis(
                 method=f"probability of choosing the group, averaged over both orders (ties = 1/2); {how} bootstrap over sets"
                 + note,
                 test_type="fixed",
+                status=None if usable else "instrument_unusable",
             )
         )
     return out
+
+
+def _unusable_result(kinds: pd.Series, attribute: str, confidence: float, threshold: float, rows: pd.DataFrame):
+    """Share of unusable answers, with the count of each kind and of the sets left usable in both orders"""
+    n, k = len(kinds), int(kinds.notna().sum())
+    counts = kinds.value_counts()
+    detail = ", ".join(f"{int(counts.get(kind, 0))} {kind}" for kind in ("refusal", "unparsed", "error"))
+    if "set_id" in rows and "control" in rows:
+        complete = int((rows[kinds.isna()].groupby("set_id")["control"].nunique() == 2).sum())
+        detail += f"; {complete} of {rows['set_id'].nunique()} sets usable in both orders"
+    ci = _wilson(k, n, confidence)
+    return MetricResults(
+        metric_type="fairness",
+        metric_name="unusable_rate",
+        feature_name=attribute,
+        metric_value=k / n,
+        ci_low=ci[0],
+        ci_high=ci[1],
+        n=n,
+        threshold=threshold,
+        drift_status=bool(k / n > threshold),
+        method=f"share of the answers excluded from the analysis ({detail}); Wilson",
+        test_type="fixed",
+    )
+
+
+def _instrument_result(attribute: str, usable: bool, detail: str):
+    status = "usable" if usable else "instrument_unusable"
+    return MetricResults(
+        metric_type="fairness",
+        metric_name="comparative_instrument",
+        feature_name=attribute,
+        metric_value=status,
+        status=status,
+        method=("instrument usable: " if usable else "instrument unusable for this model: ") + detail,
+        test_type="fixed",
+    )
