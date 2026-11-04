@@ -383,6 +383,15 @@ def write_json_schema(path: Union[str, Path] = SCHEMA_PATH) -> Path:
 
 
 def _producer_version() -> str:
+    """Version of the code that runs: the source tree's pyproject.toml when the package is imported from a checkout
+    (an editable install keeps the metadata of the version it was installed at), else the installed metadata"""
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    text = pyproject.read_text(encoding="utf-8") if pyproject.is_file() else ""
+    if f'name = "{PRODUCER}"' in text:  # this package's own checkout, not another project's pyproject
+        for line in text.splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "version" and value.strip():
+                return value.strip().strip("\"'")
     try:
         return metadata.version(PRODUCER)
     except metadata.PackageNotFoundError:

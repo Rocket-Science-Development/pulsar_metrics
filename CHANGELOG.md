@@ -2,6 +2,30 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.0] - 2026-11-04
+
+### Added
+
+- `pulsar_metrics.evidence`: export of results in the versioned format `pulsar.evidence/1`, for a service that turns
+  measurements into evidence. Typed pydantic records with a deterministic `evidence_id` (deduplication), system,
+  model, metric with threshold, direction and status, window and reference, a reliability block with machine-readable
+  codes (blocking `reasons`, advisory `notes`), A/A calibration, persistence and data quality, provenance, and
+  `details` for aggregates only (64 KiB cap). Converters from an Analyzer, the fairness analyzers, the GenAI and
+  compliance results and any list of `MetricResults` (`to_evidence`); JSON round trip; JSON Schema shipped in
+  `pulsar_metrics/schemas/evidence-1.json` and checked by the tests. Compatibility: additive changes stay in `/1`,
+  breaking changes move to `/2`. `producer_version` is read from the source tree when the package runs from a
+  checkout (editable installs keep stale metadata).
+- `mmd_test` and `embedding_drift(test="mmd")` accept `groups=(reference_groups, current_groups)`: permutations and
+  subsampling move whole groups of rows (for example the passages retrieved by one agent run) instead of rows taken
+  as independent. On the LR-03 replay (windows of 100 runs), the A/A false-alarm rate of MMD on retrieved passages
+  goes from 41–43 % to 5.0 % [4.3; 5.8]. Without `groups`, behaviour and p-values are unchanged.
+
+### Changed
+
+- The Analyzer keeps the window and reference sizes and bounds of its last run (`_window_info`), and
+  `DriftPersistence` keeps whether the last window changed the streak (`changed`), for the evidence export. The
+  columns of `results_to_pandas` are unchanged.
+
 ## [0.12.0] - 2026-11-04
 
 Changes recommended by the P2 lab of 3 November 2026 (TC-02, TC-04, TS-04, FA-03, LA-02, LB-02).
