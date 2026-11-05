@@ -13,14 +13,17 @@ All notable changes to pulsar-metrics. The format follows [Keep a Changelog](htt
   `MetricResults` with `metric_type="data_quality"`: `schema` (missing, new or retyped column), `null_share`,
   `out_of_range_share`, `unseen_category_share`, `duplicate_share`, `rule_violation_share`. Thresholds per check and per
   column in a `DataQualityPolicy` (dict or YAML), absolute (`{max: x}`) or relative to the reference (`{margin: x}`).
-  A check that cannot run has no value nor verdict and a status code. `DataQualityAnalyzer` runs them like the other
+  A check that cannot run has no value nor verdict and a status code; a window without rows makes every check, the
+  schema included, `empty_window`. Infinite values are in range when the reference held the same infinity, column
+  names are read as text, `range_quantiles` levels are checked against the profile's when the policy is loaded. `DataQualityAnalyzer` runs them like the other
   analyzers; `to_evidence` exports them in the `data_quality` family with seven new reliability codes
   (`empty_window`, `missing_in_window`, `not_in_reference`, `type_mismatch`, `no_reference_values`,
   `no_reference_domain`, `no_values_in_window`). On the open hourly weather of Montréal-Trudeau (ECCC), no false
   positive over 36 clean months with a per-column policy, and each provoked break caught by its check.
 - **Consistency of LLM answers** (`pulsar_metrics.genai.consistency`, `consistency_drift`): mean pairwise agreement
   and share of questions in full agreement on a window, with bootstrap intervals over the questions, and a one-sided
-  permutation test of a drop against a reference (paired on shared questions). Exported in the `genai` family, with
+  permutation test of a drop against a reference (paired on shared questions); a missing `full_agreement` is read
+  from the agreement, a non-boolean one refused. Exported in the `genai` family, with
   the reliability codes `few_repeats` and `few_questions`. On 30 questions with local models, a temperature rise is
   detected (agreement −0.19 and −0.30) and an A/A split is not (4.4 % false alarms over 500 splits). Answers are
   collected by `pulsar_data_collection.genai.ConsistencyProbe`.
