@@ -573,11 +573,12 @@ Reliability codes (`REASON_CODES`, `NOTE_CODES` in the module):
   `few_labelled_rows`, `constant_reference`, `saturated_null`, `degenerate_null`, `window_size_mismatch`,
   `short_reference`, `suppressed_group`, `rule_not_evaluable`, `instrument_unusable`, `flagged_unreliable`,
   `non_finite_value` (NaN or infinite value, exported as `null`), `unstable_reference` (explainability),
-  `few_repeats` and `few_questions` (consistency), and for the data-quality checks that cannot run `empty_window`,
+  `few_repeats` and `few_questions` (consistency), for the data-quality checks that cannot run `empty_window`,
   `missing_in_window`, `not_in_reference`, `type_mismatch`, `no_reference_values`, `no_reference_domain`,
-  `no_values_in_window`;
+  `no_values_in_window`, and for the RAG drift trigger `missing_signal`, `few_values`, `no_signal`;
 - `notes`: `nominal_threshold`, `no_threshold`, `sparse_cells`, `missing_values_set_aside`, `partial_label_coverage`,
-  `drift_not_confirmed`, `ecological_inference`, `small_canary`.
+  `drift_not_confirmed`, `ecological_inference`, `small_canary`, `partial_signals` and `small_window` (RAG drift
+  trigger).
 
 `reliable` is stricter than `MetricResults.reliable`: it is also false for a failed or not evaluable metric and for a
 constant reference. `metric.status` is the verdict of the window itself; with `persistence`, `confirmed` says whether
@@ -681,6 +682,122 @@ unsupported answers) makes every generic test mark the feature `constant_referen
 evidence), and the rank and chi2 tests are asymptotic: on the window above, `manwu` (one-sided) gives 1.7e-08 where
 the exact p-value is 5.1e-04. `rate_increase` takes 0 / 1 or boolean values only (anything else raises), and
 `AACalibrator` does not flag its constant references either.
+
+### Recommended drift trigger (RAG agents)
+
+A governance layer re-evaluates a compliance control when Pulsar reports a drift of the agent: a false alarm flips a
+control and calls a reviewer for nothing, a late alert leaves a degraded agent in service. `RAGDriftTrigger` packages
+the trigger measured on a replay of a RAG agent: use it when the agent's `agent_run` records carry a faithfulness
+score, an empty-retrieval indicator and the retriever's score of the top passage, and one decision per window has to
+be handed over.
+
+```python
+import numpy as np
+import pandas as pd
+
+from pulsar_metrics.genai import RAGDriftTrigger
+
+rng = np.random.default_rng(0)
+
+
+def rag_runs(n, faithfulness_drop=0.0):
+    """agent_run records as written by pulsar-data-collection (synthetic here)"""
+    return pd.DataFrame(
+        {
+            "det_faithfulness": np.clip(rng.beta(5, 2, n) - faithfulness_drop, 0, 1),
+            "det_retrieval_empty": rng.random(n) < 0.05,
+            "det_retrieval_top": rng.gamma(5, 2, n),
+        }
+    )
+
+
+reference_runs = rag_runs(300)
+trigger = RAGDriftTrigger()  # keep one instance for the whole monitoring
+
+for hour, drop in enumerate([0.0, 0.0, 0.25, 0.25]):
+    decision = trigger.evaluate(rag_runs(100, drop), reference_runs)
+    print(f"hour {hour}  p={decision.p_value:.2g}  raw={decision.drift}  confirmed={decision.confirmed}  changed={decision.changed}")
+
+records = decision.to_evidence("RAG-0007", window={"id": "2026-11-05T03"}, reference={"id": "ref-2026-10"})
+print([(r.details.get("trigger_signal", "decision"), r.metric.status) for r in records])
+```
+
+```
+hour 0  p=1  raw=False  confirmed=False  changed=False
+hour 1  p=1  raw=False  confirmed=False  changed=False
+hour 2  p=1.6e-24  raw=True  confirmed=False  changed=False
+hour 3  p=3.3e-25  raw=True  confirmed=True  changed=True
+[('faithfulness', 'alert'), ('empty_retrieval', 'ok'), ('retrieval_top', 'ok'), ('decision', 'alert')]
+```
+
+Defaults (`RECOMMENDED_RAG_TRIGGER`, `RAG_TRIGGER_SIGNALS`):
+
+| Setting | Default |
+|---|---|
+| Signals, one-sided in the direction of a degradation | `faithfulness` (`det_faithfulness`, Mann-Whitney, window lower), `empty_retrieval` (`det_retrieval_empty`, 0 / 1, `rate_increase`: exact Fisher, window higher), `retrieval_top` (`det_retrieval_top`, the retriever's score of the top passage written with `record_score`, Mann-Whitney, window lower) |
+| Decision of a window | Bonferroni: alert when `min(1, 3 x smallest p-value) < alpha`, `alpha = 0.05` |
+| Confirmation | `DriftPersistence(windows=2)`: two windows in a row to confirm, two without alert to clear |
+| Minimum data per signal | 5 non-missing values in the window and in the reference for the rank tests, 1 for the indicator |
+| Measured with | windows of 100 runs against a reference of 300 |
+
+`evaluate(current, reference)` takes run records (DataFrame or list of dicts) and returns a `TriggerDecision`:
+`signals` (one `MetricResults` per signal: raw p-value, per-signal level `alpha / 3`), `p_values`, `p_value` (the
+adjusted p-value of the window), `drift` (raw verdict), `confirmed` and `changed` (after persistence; `changed` is
+the event to send), `not_evaluable`, `to_pandas()` and `to_evidence(system_id, window=..., reference=...)`. The
+records are one per signal (`drift` family) and one for the decision (`rag_drift_trigger`, `genai` family, decided
+on its p-value), with the persistence block and the settings and p-values of every signal in `details.trigger`.
+
+Overrides: `RAGDriftTrigger(alpha=0.01, persistence=3, signals=["faithfulness", "empty_retrieval"],
+columns={"faithfulness": "my_faithfulness"})`; a `TriggerSignal(name, column, test, alternative, min_values)` adds a
+signal of your own (the Bonferroni factor is the number of signals). `is_recommended` and `details.trigger.preset`
+say whether the measured configuration is in use. `reset()` after a new model version, corpus or reference.
+
+A signal whose column is absent from the window or the reference is **not evaluable** (status and evidence reason
+code `missing_signal`; `few_values` below its minimum count), not an error: the decision rests on the other signals
+with the factor of all three (conservative, as in the replay) and the decision record gets the note
+`partial_signals`. With no evaluable signal the window has no verdict (`no_signal`) and the persistence streaks are
+kept. A test that fails (e.g. a value other than 0 / 1 in the indicator) gives an `error` record for that signal. A
+signal evaluated on a degenerate reference (e.g. a faithfulness score saturated at 1.0, `constant_reference`) makes
+the decision record unreliable too (`reliable=false`, reason `constant_reference`). `alternative` is accepted for
+`manwu` and `ttest` only (for `ks_2samp`, scipy's `"less"` means the window is higher), and two signals may not
+apply the same test to the same column (their evidence records would share an id).
+
+Where the defaults come from: the replay of the night-lab campaign LR-03 in pulsar_demo
+(`lab/replay/declencheur_derive.py`, report `lab/rapports/rapport_fiabilite_declencheur.md`): 1,800 runs of the demo
+RAG agent (llama3.2:3b, BM25 retriever, PIAF corpus), 2,000 A/A draws and 400 draws per level of corpus loss.
+Measured on that agent, with one window of 100 runs per hour:
+
+| Configuration | False alarms per window | Per week (168 windows) | Power per window, 40 % loss | Median delay, 40 % loss |
+|---|---|---|---|---|
+| Faithfulness alone, k = 1 (before) | 4.5 % [3.7, 5.5] | 7.6 [6.2, 9.2] | 39 % | 2 |
+| Trigger, k = 1 | 3.6 % [2.9, 4.5] | 6.1 [4.8, 7.6] | 79 % | 1 |
+| **Trigger, k = 2 (default)** | **0.05 % [0.01, 0.28]** | **0.08 [0.02, 0.47]** | 79 % [74, 82] | **2 windows** (p90: 5) |
+| Trigger, k = 3 | 0 % [0, 0.19] | 0 [0, 0.32] | 79 % | 4 (p90: 9) |
+| Trigger, k = 2, alpha 0.01 | 0 % [0, 0.19] | 0 [0, 0.32] | 46 % | 5 (p90: 13) |
+
+A loss of 60 % of the corpus or more is confirmed after 2 windows; 20 % after 11 windows in median; 10 % is not
+detected. Without a retriever score, the question / passage cosine can take its place (`columns={"retrieval_top":
+...}`): 0.67 false alarms per week [0.34, 1.33] and a median delay of 3 windows at 40 % on the same replay.
+
+Limits:
+
+- **Windows of 8 runs miss register-type fabrications.** On the trial on the Government of Canada AI Register (240
+  runs, windows of 8 against a reference of 80), no signal confirmed the corpus loss in the campaign as run: the
+  agent invents answers about the wrong system that look supported (score and faithfulness in the reference range),
+  and a window holds about 4 affected questions. Use **at least 20 runs per window** (the decision record gets the
+  note `small_window` below 20), and the measured 100 when the traffic allows.
+- The figures hold for one agent, one corpus and one kind of degradation (passages removed), on exchangeable runs
+  (questions in random order). Real traffic can be more correlated in time and raise the false alarm rate: measure it
+  on a reference period of your own (at least 300 runs) before relying on the trigger; if it is higher, calibrate
+  with `AACalibrator(window_size=100, contiguous=True)` on a reference sorted by time.
+- The BM25 score also moves with the statistics of the index when documents are added or removed: a real change,
+  not always a degradation.
+- **Abstentions and answers without support are indicators, not part of the trigger.** Test `det_abstention` and
+  `det_unsupported_answer` on their own with `rate_increase` (above) and export them for the governance layer: added
+  to the trigger they lowered its power (Bonferroni over 4 or 5 signals) without shortening the delay (pulsar_demo,
+  `lab/rapports/rapport_signal_abstention.md`).
+- The delays assume independent windows; in hours, they assume one window of 100 runs per hour: with less traffic a
+  window lasts longer and the delay grows accordingly.
 
 ## Group fairness
 
