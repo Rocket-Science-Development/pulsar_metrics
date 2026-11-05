@@ -227,7 +227,7 @@ def test_persistence_counts_and_unconfirmed_alert(analyzer):
 def test_fairness_results_and_coverage():
     rng = np.random.default_rng(0)
     n = 2000
-    group = rng.choice(["A", "B", "C"], size=n, p=[0.6, 0.39, 0.01])
+    group = rng.choice(["A", "B", "C", "D"], size=n, p=[0.6, 0.38, 0.012, 0.008])  # C, D: two small cells
     data = pd.DataFrame({"group": group, "y_pred": (rng.random(n) < np.where(group == "B", 0.3, 0.5)).astype(int)})
     fairness = FairnessAnalyzer(["group"], policy=FairnessPolicy(n_bootstrap=100))
     fairness.run(data)

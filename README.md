@@ -872,6 +872,13 @@ interval lies entirely outside the acceptable zone**.
   `coverage()` reports, per feature and criterion, the share of rows in suppressed or inconclusive groups
   (`no_verdict_share`), and a warning is raised when more than `max_no_verdict_share` (5 %) of the rows are in
   suppressed cells.
+- **Complementary suppression** (`complementary_suppression`, default on): suppressing a small cell is not enough
+  when it equals a published total minus the other published groups. When the suppressed cells of a feature, or of a
+  margin of an intersection (the cells of `sex=F`), are a single cell or hold fewer than `min_group_size` rows
+  together, the smallest other groups (never the reference) are suppressed too, and `coverage()` withholds its `n`
+  when only the reference is left. With three groups and one small, the middle group loses its result: that is the
+  price of not disclosing the small one (lab FA-02). Turn it off only for a report that stays with people allowed to
+  see the data.
 - **Intersections**: `intersections=True` also evaluates combinations of attributes (`sex=F|region=North`), up to
   `max_intersection_depth` attributes (default 2; `None` for all of them, `max_cells` to cap the number of cells).
   Combinations without any publishable cell are skipped with a warning.

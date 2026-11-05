@@ -7,6 +7,7 @@ import pandas as pd
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..fairness.criteria import verdict
+from ..fairness.disclosure import complementary_suppression
 from ..metrics.base import MetricResults
 from .attributions import check_attributions
 
@@ -31,7 +32,9 @@ def importance_by_group(
 
     A feature that weighs much more for one group than for the others can act as a proxy of the protected attribute.
     The intervals come from a stratified bootstrap, simultaneous over groups and features (Bonferroni); groups below
-    `min_group_size` are suppressed (no value, no count). The default reference group is the largest.
+    `min_group_size` are suppressed (no value, no count), with complementary suppression when a single group or fewer
+    than `min_group_size` rows would be suppressed (see `pulsar_metrics.fairness.disclosure`). The default reference
+    group is the largest.
 
     Parameters
     ----------
@@ -53,6 +56,9 @@ def importance_by_group(
     reference = str(reference_group) if reference_group is not None else str(sizes[kept].idxmax())
     if reference not in kept:
         raise error_msg(value=reference, message="the reference group is missing or below min_group_size")
+    primary = [g for g in sizes.index if g not in kept]
+    secondary, _ = complementary_suppression(sizes, kept, primary, reference, min_group_size)
+    kept = [g for g in kept if g not in secondary]
 
     magnitude = np.abs(attributions.to_numpy(dtype=float))
     columns = attributions.columns
@@ -102,7 +108,12 @@ def importance_by_group(
                     group=f"{name}={g}",
                     reference_group=f"{name}={reference}",
                     suppressed=True,
-                    method=f"suppressed: fewer than {min_group_size} rows",
+                    method=(
+                        "suppressed: complementary suppression, so that a smaller suppressed group cannot be computed "
+                        "by difference"
+                        if g in secondary
+                        else f"suppressed: fewer than {min_group_size} rows"
+                    ),
                 )
             )
     return out
