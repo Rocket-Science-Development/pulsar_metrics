@@ -17,6 +17,7 @@ question (`min_repeats`, default 3) or few questions (`min_questions`, default 1
 question is 0 or 1, and a handful of questions gives an interval too wide to act on.
 """
 
+import numbers
 from itertools import combinations
 from typing import Mapping, Optional, Sequence, Union
 
@@ -58,7 +59,8 @@ def question_agreement(answers: Mapping[str, Sequence]) -> pd.DataFrame:
 
 def _frame(questions: Union[pd.DataFrame, Mapping]) -> pd.DataFrame:
     """Usable questions (at least 2 answers and an agreement), with the columns question_id, n_answers, agreement and
-    full_agreement (float 0 / 1); `attrs["excluded"]` counts the questions set aside"""
+    full_agreement (float 0 / 1; a missing one is read from the agreement, 1.0 or not; anything but a boolean or 0 / 1
+    is refused); `attrs["excluded"]` counts the questions set aside"""
     frame = questions.copy() if isinstance(questions, pd.DataFrame) else question_agreement(questions)
     missing = {"agreement", "n_answers"} - set(frame.columns)
     if missing:
@@ -70,7 +72,12 @@ def _frame(questions: Union[pd.DataFrame, Mapping]) -> pd.DataFrame:
     if "full_agreement" not in frame:
         frame["full_agreement"] = frame["agreement"] >= 1.0
     usable = frame[(frame["n_answers"] >= 2) & frame["agreement"].notna()].copy()
-    usable["full_agreement"] = usable["full_agreement"].astype(float)
+    given = usable["full_agreement"].astype(object)
+    full = given.where(given.notna(), usable["agreement"] >= 1.0)  # a missing flag (None, NaN): from the agreement
+    flags = pd.to_numeric(full.map(lambda v: float(v) if isinstance(v, (bool, np.bool_, numbers.Real)) else np.nan))
+    if not flags.isin([0.0, 1.0]).all():
+        raise ValueError("full_agreement must be a boolean (or 0 / 1) per question")
+    usable["full_agreement"] = flags.astype(float)
     if usable["question_id"].duplicated().any():
         raise ValueError("question_id must be unique within a window")
     usable.attrs["excluded"] = int(len(frame) - len(usable))

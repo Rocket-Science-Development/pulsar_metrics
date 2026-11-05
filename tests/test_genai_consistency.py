@@ -117,6 +117,17 @@ def test_consistency_records_validate_against_the_committed_schema():
         jsonschema.validate(record.to_dict(), schema)
 
 
+def test_a_missing_full_agreement_is_read_from_the_agreement():
+    frame = window(0.8).astype({"full_agreement": object})
+    expected = consistency(frame)[1].metric_value
+    frame.loc[frame.index[:5], "full_agreement"] = None  # e.g. a frame assembled by hand
+    full = consistency(frame)[1]
+    assert full.metric_value == pytest.approx(expected) and not np.isnan(full.metric_value)
+    frame.loc[frame.index[0], "full_agreement"] = "yes"
+    with pytest.raises(ValueError, match="full_agreement"):
+        consistency(frame)
+
+
 def test_probe_frames_with_extra_columns_are_accepted():
     frame = window(0.8)
     frame["pair_scores"] = [[1.0, 0.0, 0.0]] * len(frame)
