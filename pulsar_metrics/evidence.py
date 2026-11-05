@@ -43,6 +43,8 @@ from .metrics.base import MetricResults
 from .metrics.drift import CONSTANT_REFERENCE, SPARSE_SHARE, WINDOW_RATIO
 from .metrics.enums import DriftTestMetricsFuncs
 from .metrics.performance import MIN_LABELLED
+from .quality.checks import METRIC_TYPE as DATA_QUALITY
+from .quality.checks import NOT_EVALUABLE as DATA_QUALITY_NOT_EVALUABLE
 
 SCHEMA_VERSION = "pulsar.evidence/1"
 SCHEMA_ID = "https://github.com/Rocket-Science-Development/pulsar_metrics/schemas/evidence-1.json"
@@ -63,6 +65,7 @@ _FAMILIES = {
     "fairness": "fairness",
     "agents": "compliance",
     "statistics": "data_quality",
+    "data_quality": "data_quality",  # pulsar_metrics.quality checks
     "explainability": "explainability",
     "custom": "custom",
 }
@@ -91,6 +94,7 @@ REASON_CODES = {
     "non_finite_value": "the value is NaN or infinite (exported as null, see details.value_non_finite): the verdict "
     "cannot be checked against the threshold",
     "unstable_reference": "explainability: the attribution ranking is not stable on the reference window, no verdict",
+    **DATA_QUALITY_NOT_EVALUABLE,  # pulsar_metrics.quality: empty_window, not_in_reference, missing_in_window, ...
 }
 # Codes of Reliability.notes: they lower the confidence without making `reliable` False
 NOTE_CODES = {
@@ -504,7 +508,13 @@ def _threshold(threshold):
     return _number(threshold)
 
 
+def _data_quality_not_evaluable(result: MetricResults) -> bool:
+    return result.metric_type == DATA_QUALITY and result.status in DATA_QUALITY_NOT_EVALUABLE
+
+
 def _status(result: MetricResults) -> str:
+    if _data_quality_not_evaluable(result):
+        return "not_evaluable"
     if result.suppressed or result.status == "not_evaluable":
         return "not_evaluable"
     if result.error is not None and result.metric_value is None:
@@ -606,6 +616,8 @@ def _reliability(
         add(reasons, "instrument_unusable")
     if result.status == UNSTABLE_REFERENCE:
         add(reasons, UNSTABLE_REFERENCE)
+    if _data_quality_not_evaluable(result):
+        add(reasons, result.status)
     if non_finite and status in ("ok", "alert", "no_verdict"):
         add(reasons, "non_finite_value")
     if family in ("performance", "fairness") and result.n_labelled is not None:
@@ -703,12 +715,13 @@ def evidence_from_result(
     options = options or {}
     family = family or _family(result)
     threshold, extra = result.threshold, {}
-    if family == "data_quality" or not (
+    if (family == "data_quality" and result.metric_type != DATA_QUALITY) or not (
         threshold is None
         or (isinstance(threshold, Number) and not isinstance(threshold, bool))
         or (isinstance(threshold, list) and all(isinstance(t, Number) for t in threshold))
     ):
-        # summary statistics: the "threshold" is the statistic of the reference, not a decision threshold
+        # summary statistics: the "threshold" is the statistic of the reference, not a decision threshold (the checks
+        # of pulsar_metrics.quality, metric_type "data_quality", carry a real one: alert above it)
         if threshold is not None:
             extra["reference_value"] = threshold
         threshold = None
@@ -816,7 +829,10 @@ def evidence_from_analyzer(
     info = getattr(analyzer, "_window_info", {}) or {}
     window = Window(start=meta.get("period_start"), end=meta.get("period_end"), n_rows=info.get("n_current"))
     reference = Reference(
-        id=reference_id, start=info.get("reference_start"), end=info.get("reference_end"), n_rows=info.get("n_reference")
+        id=reference_id or info.get("reference_id"),
+        start=info.get("reference_start"),
+        end=info.get("reference_end"),
+        n_rows=info.get("n_reference"),
     )
     kept = [r for r in results if include_statistics or r.metric_type != "statistics"]
     return evidence_from_results(
@@ -835,8 +851,8 @@ def evidence_from_analyzer(
 
 
 def to_evidence(source, system_id: str, **kwargs) -> list[Evidence]:
-    """Evidence records of any result source: an Analyzer after run(), a FairnessAnalyzer after run() (results and
-    coverage), one MetricResults or a list of them. kwargs go to the matching converter."""
+    """Evidence records of any result source: an Analyzer or a DataQualityAnalyzer after run(), a FairnessAnalyzer
+    after run() (results and coverage), one MetricResults or a list of them. kwargs go to the matching converter."""
     from .analyzers.base import AbstractAnalyzer
     from .fairness.analyzer import FairnessAnalyzer
 

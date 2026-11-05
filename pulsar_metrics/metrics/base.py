@@ -80,6 +80,7 @@ class MetricResults(BaseModel):
                 MetricsType.fairness.value,
                 MetricsType.explainability.value,
                 MetricsType.agents.value,
+                MetricsType.data_quality.value,
             ]
         ):
             raise error_msg(

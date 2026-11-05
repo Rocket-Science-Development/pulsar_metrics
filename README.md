@@ -27,6 +27,7 @@ collects features and predictions from a model serving code into InfluxDB.
 - [The Analyzer](#the-analyzer)
 - [Calibrated thresholds and multiple testing](#calibrated-thresholds-and-multiple-testing)
 - [Confirming drift over successive windows](#confirming-drift-over-successive-windows)
+- [Data quality against a reference profile](#data-quality-against-a-reference-profile)
 - [Monitoring LLM applications and agents](#monitoring-llm-applications-and-agents)
 - [Group fairness](#group-fairness)
   - [Continuous fairness monitoring](#continuous-fairness-monitoring-anytime-valid)
@@ -114,7 +115,7 @@ Every metric produces a `MetricResults` (pydantic model):
 
 | Field | Meaning |
 |---|---|
-| `metric_type` | `drift`, `performance`, `statistics` or `custom` |
+| `metric_type` | `drift`, `performance`, `statistics`, `data_quality` (see [Data quality](#data-quality-against-a-reference-profile)) or `custom` |
 | `metric_name` | e.g. `ks_2samp`, `psi`, `accuracy` |
 | `feature_name` | Feature analyzed; `prediction` for performance metrics |
 | `metric_value` | Value of the metric (p-value for statistical tests) |
@@ -448,6 +449,88 @@ are ignored.
 
 The cost is a delay of `windows - 1` windows before a lasting drift is confirmed.
 
+## Data quality against a reference profile
+
+Drift tests compare distributions; they do not say that a column disappeared, that a sensor now reports in another
+unit or that a batch was loaded twice. `pulsar_metrics.quality` learns a **data-quality profile** on a reference
+window, versioned with the model, and checks every later window against it, with thresholds set per check and per
+column in a policy.
+
+```python
+from pulsar_metrics.quality import DataQualityAnalyzer, DataQualityProfile
+
+profile = DataQualityProfile.fit(
+    reference,  # e.g. the training window
+    rules=["dew <= temp", "rh <= 100"],  # optional row rules: column <op> column | number
+    reference_id="weather-2016-2018",
+)
+profile.save("quality_profile.yaml")  # or .json; DataQualityProfile.load() reads it back
+
+analyzer = DataQualityAnalyzer(
+    "weekly quality", model_id="no2", model_version="1",
+    profile=DataQualityProfile.load("quality_profile.yaml"),
+    policy="quality_policy.yaml",  # or a dict, or None for the defaults
+)
+analyzer.run(current)  # or run(current, reference) to learn the profile on the first call
+print(analyzer.results_to_pandas()[["metric_name", "feature_name", "metric_value", "threshold", "drift_status", "status"]])
+```
+
+The profile holds aggregates only: per column its kind (`numeric`, `categorical`, `boolean`, `datetime`) and dtype, its
+share of missing values, its cardinality, its min, max and quantiles (numeric) and its levels (categorical and boolean,
+up to `max_categories=50`: identifiers and free text keep no domain); for the frame, the share of duplicate rows (on
+every profiled column, or on a key given as `duplicate_columns`); and the share of reference rows breaking each rule.
+`model_id`, `model_version` and `pred_timestamp` are left out (`exclude=`); when they are present and the analyzer has
+a `model_id`, rows are filtered on them as in `Analyzer`. YAML needs PyYAML.
+
+Each check gives one `MetricResults` per column (`metric_type="data_quality"`), with the share in `metric_value`, the
+threshold of the policy in `threshold` and `drift_status=True` when the share is **above** it:
+
+| `metric_name` | `feature_name` | Value | Default threshold |
+|---|---|---|---|
+| `schema` | column | 1 when the column is missing from the window (`status="missing_column"`), new (`"new_column"`, unless `allow_new_columns`) or of another kind (`"type_change"`), else 0 | 0 |
+| `null_share` | column | Share of missing values | reference share + 0.05 |
+| `out_of_range_share` | numeric column | Share of the values outside the reference min-max (or `range_quantiles`); missing values set aside | 0.01 (+ the reference share outside the quantiles) |
+| `unseen_category_share` | categorical or boolean column | Share of the values whose level is not in the reference; missing values set aside | 0.01 |
+| `duplicate_share` | `None` (frame) | Share of rows repeating an earlier row | reference share + 0.01 |
+| `rule_violation_share` | rule id | Share of the rows (both sides present) breaking the rule | reference share + 0.01 |
+
+The kind is read on the non-missing values: an integer or boolean column that gets missing values is not a type
+change. Results report counts and shares only, never values of the window (an unseen level may be personal data typed
+in the wrong field).
+
+**Policy.** A threshold is absolute (`0.1` or `{max: 0.1}`) or relative to the reference share (`{margin: 0.05}`);
+`null` disables a check. Top-level entries apply to every column, `columns` overrides them per column (or per rule id):
+
+```yaml
+null_share: {margin: 0.05}
+out_of_range_share: 0.01
+range_quantiles: null        # [0.001, 0.999]: range on reference quantiles instead of its min and max
+allow_new_columns: false
+columns:
+  weather:                   # empty when no phenomenon is reported, more often in summer
+    null_share: {margin: 0.25}
+    unseen_category_share: 0.03
+  station_id: {unseen_category_share: null, schema: false}
+```
+
+Unknown keys and shares outside [0, 1] are refused. **A check that cannot run** has no value and no verdict: `status`
+says why and `reliable` is `False`: `empty_window` (an empty window is recorded, not refused; the schema check still
+runs), `missing_in_window`, `not_in_reference` (a new column), `type_mismatch` (range of a column no longer numeric),
+`no_reference_values`, `no_reference_domain` (more levels than `max_categories`), `no_values_in_window`.
+`pulsar_metrics.quality.check(profile, current, policy)` runs the checks without an analyzer.
+
+On the hourly weather of Montréal-Trudeau airport (open data of Environment and Climate Change Canada, input of the
+NO2 trial of [pulsar_demo](https://github.com/Rocket-Science-Development/pulsar_demo)), with a 2016-2018 profile and the
+policy above, the 36 months of 2019-2021 raise no alert, while July 2019 with the pressure in hPa instead of kPa, a
+third of the humidity missing, two weather labels in French, a day loaded twice, dew point and temperature swapped or
+humidity sent as text each raise the alert of its check (`tests/test_data_quality_gc.py`, skipped without the raw
+files). With the default thresholds alone, 16 of the 36 months raise an alert, all on `weather`: its share of empty
+values is seasonal (52 % in the reference, up to 65 % in summer: 15 months), and one winter month brings new
+combinations of levels (1.5 % of its values), hence the per-column entries.
+
+`to_evidence(analyzer, system_id)` exports the results as evidence records of family `data_quality`, `direction`
+`upper` and `decision_basis` `value`; checks that cannot run are `not_evaluable` with their status as reason code.
+
 ## Evidence records (stable export format)
 
 `MetricResults` is the in-memory result of an analysis. To hand results over to another system (an audit trail, a
@@ -460,7 +543,7 @@ self-describing JSON format, `"pulsar.evidence/1"`, described by a JSON Schema s
 from pulsar_metrics.evidence import to_evidence
 
 records = to_evidence(
-    analyzer,  # after run(); also a FairnessAnalyzer, one MetricResults or a list of them
+    analyzer,  # after run(); also a DataQualityAnalyzer, a FairnessAnalyzer, one MetricResults or a list of them
     system_id="SYS-0042",  # your identifier of the monitored system (e.g. its entry in an inventory of AI systems)
     reference_id="holdout-2026-01",
     calibrator=calibrator,  # optional: AACalibrator behind the thresholds
@@ -479,14 +562,16 @@ payload = [r.to_dict() for r in records]  # JSON-ready; Evidence.from_json / fro
 | `window`, `reference` | `id` (yours, optional), `start`, `end` (UTC, ISO 8601; NaT is read as missing), `n_rows` |
 | `reliability` | `reliable` (bool), `reasons` (codes that make it false), `notes` (codes that lower the confidence only), `reason_text` (Pulsar's message), `calibration` (`method`: `aa_calibration`, `nominal` or `none`; `null_status`, `window_size`, `quantile`, reference windows, draws, share at bound, 90 % interval of the threshold, empirical p-value, p-value floor), `persistence` (`windows`, `drift_streak`, `no_drift_streak`, `confirmed`, `changed`), `quality` (missing shares, `low_expected_share`, `n_labelled`, `label_coverage`, `suppressed`) |
 | `provenance` | `producer` (`pulsar-metrics`), `producer_version`, `produced_at` (UTC), `run_name` |
-| `details` | Free aggregates (e.g. `conf_int`, `reference_value` of summary statistics). **Aggregates only, never raw rows, texts or personal data**; capped at 64 KiB |
+| `details` | Free aggregates (e.g. `conf_int`, `reference_value` of summary statistics, `pulsar_status` of a schema check: `missing_column`, `new_column`, `type_change`). **Aggregates only, never raw rows, texts or personal data**; capped at 64 KiB |
 
 Reliability codes (`REASON_CODES`, `NOTE_CODES` in the module):
 
 - `reasons`, `reliable` is then `false`: `computation_error`, `no_ground_truth`, `insufficient_labels`,
   `few_labelled_rows`, `constant_reference`, `saturated_null`, `degenerate_null`, `window_size_mismatch`,
   `short_reference`, `suppressed_group`, `rule_not_evaluable`, `instrument_unusable`, `flagged_unreliable`,
-  `non_finite_value` (NaN or infinite value, exported as `null`), `unstable_reference` (explainability);
+  `non_finite_value` (NaN or infinite value, exported as `null`), `unstable_reference` (explainability), and for the
+  data-quality checks that cannot run `empty_window`, `missing_in_window`, `not_in_reference`, `type_mismatch`,
+  `no_reference_values`, `no_reference_domain`, `no_values_in_window`;
 - `notes`: `nominal_threshold`, `no_threshold`, `sparse_cells`, `missing_values_set_aside`, `partial_label_coverage`,
   `drift_not_confirmed`, `ecological_inference`, `small_canary`.
 
