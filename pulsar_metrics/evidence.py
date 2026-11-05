@@ -16,6 +16,12 @@ package (`pulsar_metrics/schemas/evidence-1.json`, see `json_schema()`). Compati
   required, a changed meaning of a value (e.g. of `status` or `direction`), a change of the fields hashed into
   `evidence_id`.
 
+`model_fingerprint` (0.16) is an optional field hashed into `evidence_id` only when present: a record without it keeps
+the id it had before 0.16, so the format stays "pulsar.evidence/1". A record carrying it is new content, which readers
+older than 0.16 cannot verify: they drop the unknown field, recompute a different id and refuse the record. Upgrade
+the readers (pulsar-metrics >= 0.16) before sending fingerprinted records to them; readers that do not check
+`evidence_id` are not affected. See `pulsar_metrics.fingerprint`.
+
 `details` holds aggregates only (counts, rates, statistics, settings): never raw rows, texts, identifiers of people or
 any personal data. Its serialized size is capped (MAX_DETAILS_BYTES) as a guard against dumping data by mistake.
 
@@ -38,6 +44,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .fingerprint import ModelFingerprint
 from .metrics import constant
 from .metrics.base import MetricResults
 from .metrics.drift import CONSTANT_REFERENCE, RATE_METRICS, SPARSE_SHARE, WINDOW_RATIO
@@ -335,13 +342,19 @@ class Evidence(_Part):
     schema_version: Literal["pulsar.evidence/1"] = Field(SCHEMA_VERSION, description="Format and major version")
     evidence_id: str = Field(
         "",
-        description="sha256 of the identifying content (schema major version, system, model, metric, feature, group, "
-        "subject metric, window, reference, compliance rules version; produced_at when the window has no start, end "
-        "nor id): the same finding sent twice has the same id. Checked when a record is read",
+        description="sha256 of the identifying content (schema major version, system, model, model fingerprint when "
+        "present, metric, feature, group, subject metric, window, reference, compliance rules version; produced_at "
+        "when the window has no start, end nor id): the same finding sent twice has the same id. Checked when a record "
+        "is read",
     )
     system_id: str = Field(description="External identifier of the monitored system, supplied by the user")
     model_id: Optional[str] = Field(None, description="Model identifier")
-    model_version: Optional[str] = Field(None, description="Model version")
+    model_version: Optional[str] = Field(None, description="Model version (a free label)")
+    model_fingerprint: Optional[ModelFingerprint] = Field(
+        None,
+        description="Digest of the measured model (saved artifact, serving endpoint or declared), hashed into evidence_id "
+        "when present (algorithm and digest). None: the model is identified by its label only",
+    )
     metric: Metric
     window: Window = Field(default_factory=Window)
     reference: Reference = Field(default_factory=Reference)
@@ -398,11 +411,12 @@ class Evidence(_Part):
 def evidence_id(record: Evidence) -> str:
     """sha256 of the identifying content of a record
 
-    Hashed: schema major version, system_id, model_id, model_version, metric family, name, feature, group,
-    reference group and subject metric, window id, start and end, reference id, start and end, and for compliance
-    records the rules version (details.rules_version). Not hashed: the value, the verdict, the reliability, the other
-    details and the provenance: a recomputation of the same metric on the same window has the same id (receivers keep
-    the record with the latest provenance.produced_at).
+    Hashed: schema major version, system_id, model_id, model_version, the model fingerprint when there is one
+    ("<algorithm>:<digest>"; its source and ref are not hashed), metric family, name, feature, group, reference group
+    and subject metric, window id, start and end, reference id, start and end, and for compliance records the rules
+    version (details.rules_version). A record without fingerprint hashes exactly what it hashed before 0.16. Not
+    hashed: the value, the verdict, the reliability, the other details and the provenance: a recomputation of the same
+    metric on the same window has the same id (receivers keep the record with the latest provenance.produced_at).
 
     A window with no start, end nor id cannot tell two windows apart: provenance.produced_at is then hashed too, so
     that a later window does not overwrite an earlier one at the receiver (the converters warn; pass window={"id": ...}
@@ -423,6 +437,8 @@ def evidence_id(record: Evidence) -> str:
         "reference": [record.reference.id, _iso(record.reference.start), _iso(record.reference.end)],
         "rules_version": record.details.get("rules_version") if record.metric.family == "compliance" else None,
     }
+    if record.model_fingerprint is not None:  # only when present: the ids of records without it are unchanged
+        identity["model_fingerprint"] = str(record.model_fingerprint)
     if _no_window(record.window):
         identity["produced_at"] = _iso(record.provenance.produced_at)
     canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -737,6 +753,7 @@ def evidence_from_result(
     details: Optional[dict] = None,
     run_name: Optional[str] = None,
     produced_at: Optional[datetime] = None,
+    model_fingerprint: Union[ModelFingerprint, dict, None] = None,
 ) -> Evidence:
     """Evidence record of one MetricResults (any metric type: drift, performance, fairness, genai, agents, ...)
 
@@ -760,6 +777,9 @@ def evidence_from_result(
     details : dict, optional
         Extra aggregates, merged over the ones taken from the result (conf_int, raw status; for rate_increase the
         counts and rates of the window and of the reference). Never raw rows
+    model_fingerprint : ModelFingerprint or dict, optional
+        Digest of the measured model (see pulsar_metrics.fingerprint: fingerprint_path of the saved artifact, digest of
+        the serving endpoint, or declared_fingerprint); hashed into evidence_id
 
     A record whose window has no start, end nor id gets an evidence_id that includes produced_at (UserWarning): pass
     window={"id": ...} (batch, run or period id) so that the same finding sent again keeps its id.
@@ -833,6 +853,7 @@ def evidence_from_result(
         system_id=system_id,
         model_id=model_id,
         model_version=model_version,
+        model_fingerprint=model_fingerprint,
         metric=metric,
         window=window,
         reference=Reference.model_validate(reference or {}),
@@ -869,11 +890,14 @@ def evidence_from_analyzer(
     persistence=None,
     include_statistics: bool = False,
     produced_at: Optional[datetime] = None,
+    model_fingerprint: Union[ModelFingerprint, dict, None] = None,
 ) -> list[Evidence]:
     """Evidence records of the last Analyzer.run(): model, window and options are taken from the analyzer
 
     include_statistics : bool, optional
         Also export the summary statistics (family data_quality; default False: they carry no verdict)
+    model_fingerprint : ModelFingerprint or dict, optional
+        Digest of the measured model; default: the analyzer's model_fingerprint (constructor argument), if any
     """
     results = analyzer.get_result()
     if results is None:
@@ -893,6 +917,7 @@ def evidence_from_analyzer(
         system_id,
         model_id=meta.get("model_id"),
         model_version=meta.get("model_version"),
+        model_fingerprint=model_fingerprint if model_fingerprint is not None else meta.get("model_fingerprint"),
         window=window,
         reference=reference,
         options=meta.get("options") or {},

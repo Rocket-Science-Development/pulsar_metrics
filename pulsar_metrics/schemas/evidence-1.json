@@ -450,6 +450,58 @@
       "title": "Metric",
       "type": "object"
     },
+    "ModelFingerprint": {
+      "description": "Digest of the measured model (field `model_fingerprint` of an evidence record)",
+      "properties": {
+        "algorithm": {
+          "default": "sha256",
+          "description": "Hash algorithm of the digest: sha256 or sha512",
+          "enum": [
+            "sha256",
+            "sha512"
+          ],
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "digest": {
+          "description": "Lowercase hexadecimal digest (64 characters for sha256, 128 for sha512)",
+          "title": "Digest",
+          "type": "string"
+        },
+        "source": {
+          "description": "artifact: saved model file or directory hashed by Pulsar; endpoint: digest reported by the serving endpoint; declared: digest given by the user, not checked by Pulsar",
+          "enum": [
+            "artifact",
+            "endpoint",
+            "declared"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What was hashed: file or directory name, served model tag (e.g. 'ollama:llama3.2:3b'), registry entry. A label: not part of evidence_id",
+          "title": "Ref"
+        }
+      },
+      "required": [
+        "algorithm",
+        "digest",
+        "source",
+        "ref"
+      ],
+      "title": "ModelFingerprint",
+      "type": "object"
+    },
     "Persistence": {
       "description": "Verdict over consecutive windows (DriftPersistence)",
       "properties": {
@@ -846,7 +898,7 @@
     },
     "evidence_id": {
       "default": "",
-      "description": "sha256 of the identifying content (schema major version, system, model, metric, feature, group, subject metric, window, reference, compliance rules version; produced_at when the window has no start, end nor id): the same finding sent twice has the same id. Checked when a record is read",
+      "description": "sha256 of the identifying content (schema major version, system, model, model fingerprint when present, metric, feature, group, subject metric, window, reference, compliance rules version; produced_at when the window has no start, end nor id): the same finding sent twice has the same id. Checked when a record is read",
       "title": "Evidence Id",
       "type": "string"
     },
@@ -878,8 +930,20 @@
         }
       ],
       "default": null,
-      "description": "Model version",
+      "description": "Model version (a free label)",
       "title": "Model Version"
+    },
+    "model_fingerprint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelFingerprint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Digest of the measured model (saved artifact, serving endpoint or declared), hashed into evidence_id when present (algorithm and digest). None: the model is identified by its label only"
     },
     "metric": {
       "$ref": "#/$defs/Metric"
@@ -909,6 +973,7 @@
     "system_id",
     "model_id",
     "model_version",
+    "model_fingerprint",
     "metric",
     "window",
     "reference",

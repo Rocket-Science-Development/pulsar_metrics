@@ -248,7 +248,7 @@ class TriggerDecision:
         include_signals : bool, optional
             Also export the per-signal records (default True); False keeps the combined decision only
         kwargs :
-            model_id, model_version, run_name, produced_at, passed to evidence_from_result
+            model_id, model_version, model_fingerprint, run_name, produced_at, passed to evidence_from_result
 
         The combined record is in the genai family, decided on its p_value with threshold alpha; its reliability
         carries the persistence block (windows, streaks, confirmed, changed), the note drift_not_confirmed for an

@@ -558,8 +558,9 @@ payload = [r.to_dict() for r in records]  # JSON-ready; Evidence.from_json / fro
 | Field | Meaning |
 |---|---|
 | `schema_version` | `"pulsar.evidence/1"` |
-| `evidence_id` | sha256 of the identifying content (system, model, metric family and name, feature, group, subject metric, window, reference, and the rules version of compliance records): the same finding sent twice has the same id, so a receiver can deduplicate; a recomputation of the same window keeps the id (keep the latest `produced_at`). A window with no `start`, `end` nor `id` cannot tell two windows apart: `produced_at` is then hashed too and the converters warn, so pass `window={"id": ...}` (batch, run or period id) for results without timestamps (fairness, compliance, GenAI tests). `from_dict` / `from_json` recompute the id and refuse a record whose id does not match its content |
-| `system_id`, `model_id`, `model_version` | Monitored system (identifier supplied by the user) and model |
+| `evidence_id` | sha256 of the identifying content (system, model, model fingerprint when present, metric family and name, feature, group, subject metric, window, reference, and the rules version of compliance records): the same finding sent twice has the same id, so a receiver can deduplicate; a recomputation of the same window keeps the id (keep the latest `produced_at`). A window with no `start`, `end` nor `id` cannot tell two windows apart: `produced_at` is then hashed too and the converters warn, so pass `window={"id": ...}` (batch, run or period id) for results without timestamps (fairness, compliance, GenAI tests). `from_dict` / `from_json` recompute the id and refuse a record whose id does not match its content |
+| `system_id`, `model_id`, `model_version` | Monitored system (identifier supplied by the user) and model (`model_version` is a free label) |
+| `model_fingerprint` | Optional (0.16): digest of the measured model, `{"algorithm": "sha256", "digest": "<hex>", "source": "artifact" \| "endpoint" \| "declared", "ref": "<name or tag>"}`, see [Model fingerprint](#model-fingerprint); `null` when not given |
 | `metric` | `family` (`drift`, `performance`, `fairness`, `genai`, `compliance`, `data_quality`, `explainability`, `custom`), `name`, `feature`, `group` / `reference_group` (fairness), `subject_metric`, `value`, `threshold` (number or `[low, high]`, a `null` bound being unbounded), `direction` (`upper`: alert above, `lower`: alert below, `outside`: alert outside the zone, `none`), `decision_basis` (`value`, `p_value`, `confidence_interval`, `reference_test`, `sequential_test`), `p_value`, `ci_low` / `ci_high`, `e_value`, `n`, `status`, `error`, `method` |
 | `metric.status` | `ok`, `alert` (drift, degradation, disparity or violation detected), `no_verdict` (no threshold, inconclusive), `not_evaluable` (suppressed group, no ground truth, rule not evaluable), `error` |
 | `window`, `reference` | `id` (yours, optional), `start`, `end` (UTC, ISO 8601; NaT is read as missing), `n_rows` |
@@ -593,6 +594,46 @@ regenerate it with `python -c "from pulsar_metrics.evidence import write_json_sc
 
 To send the records over HTTPS with local buffering and retries, see `EvidenceOutbox` in
 [pulsar-data-collection](https://github.com/Rocket-Science-Development/pulsar_data_collection).
+
+### Model fingerprint
+
+`model_version` is a label: nothing proves that the model measured is the one the label names. `model_fingerprint`
+adds a digest of the model itself to every record, so that a governance service can tell which exact model version
+was measured, and check it against the artifact later:
+
+```python
+from pulsar_metrics.analyzers.base import Analyzer
+from pulsar_metrics.evidence import to_evidence
+from pulsar_metrics.fingerprint import declared_fingerprint, fingerprint_path, verify_fingerprint
+
+fp = fingerprint_path("models/credit-1.0.joblib")  # the saved file (or directory) the server loads
+analyzer = Analyzer(name="weekly check", model_id="credit_model", model_version="1.0", model_fingerprint=fp)
+...
+records = to_evidence(analyzer, "REG-0001")  # each record carries model_fingerprint
+verify_fingerprint(records[0], "models/credit-1.0.joblib")  # True while the file is unchanged
+```
+
+- `source`: `artifact` (file or directory hashed by `fingerprint_path`), `endpoint` (digest reported by the serving
+  endpoint, e.g. the Ollama model digest, see `pulsar_data_collection.fingerprint`), `declared` (given by you, e.g.
+  from a model registry: `declared_fingerprint(digest)`, not checked by Pulsar). `algorithm` is `sha256` (default) or
+  `sha512`; `digest` is lowercase hexadecimal (`"sha256:<hex>"` and uppercase are accepted and normalized); `ref` is a
+  label (file name, served tag), the file name by default, never the full path.
+- A file is hashed as `sha256sum` does. A directory is hashed through its manifest (`directory_manifest`): one line
+  `<sha256 of the file>  <relative path>` per file, sorted, hidden files included, links to files followed; links to
+  directories, broken links and special files raise rather than being skipped. Empty directories, permissions and
+  modification times are not hashed.
+- Fingerprint the **saved artifact**, not the object in memory: the pickle bytes of a fitted estimator change with the
+  pickle protocol, the library versions and the attribute order, so the same model would get several digests.
+- `evidence_from_result`, `evidence_from_results`, `to_evidence`, `TriggerDecision.to_evidence` and
+  `evidence_from_analyzer` take `model_fingerprint=`; the analyzers (`Analyzer`, `DataQualityAnalyzer`) also take it
+  at construction and pass it to their records.
+
+**Identity and compatibility.** The fingerprint (`"<algorithm>:<digest>"`, not its `source` nor `ref`) is hashed into
+`evidence_id` only when present: a record without it keeps exactly the id it had in 0.15, so the format stays
+`"pulsar.evidence/1"` (an optional field). A record with a fingerprint is a new identity: the same finding on two
+models with the same label but different bytes no longer collides at the receiver. Readers older than 0.16 drop the
+unknown field and then refuse such a record (its id no longer matches what they recompute): upgrade the readers
+before sending fingerprinted records to them.
 
 ## Monitoring LLM applications and agents
 

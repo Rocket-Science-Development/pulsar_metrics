@@ -34,6 +34,8 @@ class DataQualityAnalyzer(AbstractAnalyzer):
         Passed to DataQualityProfile.fit when the analyzer learns its profile
     timestamp_column : str, optional
         Column giving the period of the window and of the reference (default "pred_timestamp")
+    model_fingerprint : ModelFingerprint or dict, optional
+        Digest of the analysed model (pulsar_metrics.fingerprint), carried into its evidence records
     """
 
     def __init__(
@@ -50,8 +52,9 @@ class DataQualityAnalyzer(AbstractAnalyzer):
         duplicate_columns: Optional[Sequence[str]] = None,
         max_categories: int = MAX_CATEGORIES,
         timestamp_column: Optional[str] = "pred_timestamp",
+        model_fingerprint=None,
     ):
-        super().__init__(name, model_id, model_version, description)
+        super().__init__(name, model_id, model_version, description, model_fingerprint=model_fingerprint)
         self.profile = profile
         self.policy = DataQualityPolicy.load(policy)
         self._fit_options = {
