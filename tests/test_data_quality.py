@@ -234,6 +234,27 @@ def test_out_of_range_sets_missing_values_aside(profile):
     assert result.n == 300 and result.missing_share_current == 0.25
 
 
+def test_infinite_values_are_in_range_when_the_reference_held_them():
+    reference = pd.DataFrame({"x": np.r_[np.arange(99.0), np.inf], "y": np.arange(100.0)})
+    profile = DataQualityProfile.fit(reference)
+    assert profile.columns["x"].pos_inf and not profile.columns["x"].neg_inf and profile.columns["x"].max == 98.0
+    assert DataQualityProfile.from_json(profile.to_json()).columns["x"].pos_inf
+    window = pd.DataFrame({"x": [1.0, np.inf, -np.inf, 2.0], "y": [1.0, np.inf, 2.0, 3.0]})
+    results = by_key(check_ranges(profile, window))
+    assert results[("out_of_range_share", "x")].metric_value == 0.25  # -inf only: the reference had no -inf
+    assert results[("out_of_range_share", "y")].metric_value == 0.25  # +inf: the reference had none
+
+
+def test_non_text_column_names_are_profiled_and_checked_as_text():
+    reference = pd.DataFrame({0: np.arange(50.0), 1: ["a", "b"] * 25})
+    profile = DataQualityProfile.fit(reference)
+    assert list(profile.columns) == ["0", "1"]
+    results = check(profile, reference.iloc[:20])
+    assert results and all(r.drift_status is False for r in results)
+    with pytest.raises(CustomExceptionPulsarMetric):
+        DataQualityProfile.fit(pd.DataFrame({1: [1.0], "1": [2.0]}))  # two names that collide as text
+
+
 def test_unseen_category_share_catches_new_levels_without_copying_them(profile):
     current = frame(400, 8)
     assert by_key(check_categories(profile, current))[("unseen_category_share", "station")].drift_status is False

@@ -71,6 +71,16 @@ def _finite(value) -> Optional[float]:
     return value if math.isfinite(value) else None
 
 
+def text_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """The frame with its column names as text (the profile's keys): 0 becomes "0"; refused when two names collide"""
+    if all(isinstance(c, str) for c in frame.columns):
+        return frame
+    names = [str(c) for c in frame.columns]
+    if len(set(names)) != len(names):
+        raise error_msg(value=names, message="column names collide once written as text (e.g. 1 and '1')")
+    return frame.set_axis(names, axis=1)
+
+
 def as_levels(column: pd.Series) -> pd.Series:
     """Values of a categorical or boolean column as the text stored in the profile (missing values dropped)"""
     return column.dropna().astype(str)
@@ -92,6 +102,8 @@ class ColumnProfile(_Model):
     min: Optional[Union[float, str]] = Field(None, description="Smallest value (numeric; ISO 8601 for datetimes)")
     max: Optional[Union[float, str]] = Field(None, description="Largest value (numeric; ISO 8601 for datetimes)")
     quantiles: dict[str, float] = Field(default_factory=dict, description="Numeric: quantiles of QUANTILES, by level")
+    pos_inf: bool = Field(False, description="Numeric: the reference holds +inf (then +inf is not out of range)")
+    neg_inf: bool = Field(False, description="Numeric: the reference holds -inf (then -inf is not out of range)")
     categories: Optional[list[str]] = Field(
         None, description="Categorical and boolean: levels seen in the reference; None above max_categories levels"
     )
@@ -111,7 +123,8 @@ class ColumnProfile(_Model):
         }
         if kind == "numeric" and not values.empty:
             numbers = values.astype(float)
-            numbers = numbers[np.isfinite(numbers)]
+            profile["pos_inf"], profile["neg_inf"] = bool((numbers == np.inf).any()), bool((numbers == -np.inf).any())
+            numbers = numbers[np.isfinite(numbers)]  # min, max and quantiles of the finite values
             if not numbers.empty:
                 profile["min"], profile["max"] = _finite(numbers.min()), _finite(numbers.max())
                 profile["quantiles"] = {quantile_key(q): float(numbers.quantile(q)) for q in QUANTILES}
@@ -265,6 +278,7 @@ class DataQualityProfile(_Model):
         timestamp_column : str, optional
             Column giving reference_start / reference_end, when present (default "pred_timestamp")
         """
+        reference = text_columns(reference)
         ignored = set()
         if columns is None:
             ignored = {str(c) for c in exclude or ()}

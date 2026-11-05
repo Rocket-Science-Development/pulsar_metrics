@@ -10,11 +10,12 @@ in the wrong field) are never copied into the results.
 
 from typing import Optional, Union
 
+import numpy as np
 import pandas as pd
 
 from ..metrics.base import MetricResults
 from .policy import DataQualityPolicy
-from .profile import DataQualityProfile, as_levels, duplicate_share, observed_kind
+from .profile import DataQualityProfile, as_levels, duplicate_share, observed_kind, text_columns
 
 METRIC_TYPE = "data_quality"
 # status of a result that cannot be evaluated -> why (also the reliability reason codes of pulsar_metrics.evidence)
@@ -79,6 +80,7 @@ def check_schema(profile: DataQualityProfile, current: pd.DataFrame, policy=None
     policy = DataQualityPolicy.load(policy)
     if not policy.schema:
         return []
+    current = text_columns(current)
     if current.shape[0] == 0:
         return [_not_evaluable("schema", name, "empty_window", 0) for name in profile.columns if policy.schema_checked(name)]
     out = []
@@ -110,6 +112,7 @@ def check_schema(profile: DataQualityProfile, current: pd.DataFrame, policy=None
 def check_nulls(profile: DataQualityProfile, current: pd.DataFrame, policy=None) -> list:
     """`null_share` per column: share of missing values of the window (default threshold: reference share + 0.05)"""
     policy = DataQualityPolicy.load(policy)
+    current = text_columns(current)
     out = []
     n = int(current.shape[0])
     for name, column in profile.columns.items():
@@ -132,8 +135,10 @@ def check_nulls(profile: DataQualityProfile, current: pd.DataFrame, policy=None)
 
 def check_ranges(profile: DataQualityProfile, current: pd.DataFrame, policy=None) -> list:
     """`out_of_range_share` per numeric column: share of the non-missing values of the window outside the range of
-    the reference (min-max, or the policy's range_quantiles); missing values are set aside"""
+    the reference (min-max, or the policy's range_quantiles); missing values are set aside, and an infinite value is
+    in range when the reference held the same infinity"""
     policy = DataQualityPolicy.load(policy)
+    current = text_columns(current)
     out = []
     for name, column in profile.columns.items():
         if column.kind != "numeric":
@@ -151,7 +156,8 @@ def check_ranges(profile: DataQualityProfile, current: pd.DataFrame, policy=None
             continue
         values = current[name].dropna().astype(float)
         low, high = column.bounds(quantiles)
-        below, above = int((values < low).sum()), int((values > high).sum())
+        below = int(((values < low) & ~(column.neg_inf & (values == -np.inf))).sum())
+        above = int(((values > high) & ~(column.pos_inf & (values == np.inf))).sum())
         span = "reference min-max" if quantiles is None else f"reference quantiles {quantiles[0]:g}-{quantiles[1]:g}"
         method = f"outside [{low:.6g}, {high:.6g}] ({span}): {below} below, {above} above, of {len(values)} values"
         out.append(
@@ -172,6 +178,7 @@ def check_categories(profile: DataQualityProfile, current: pd.DataFrame, policy=
     """`unseen_category_share` per categorical and boolean column: share of the non-missing values of the window
     whose level was not seen in the reference (compared as text); missing values are set aside"""
     policy = DataQualityPolicy.load(policy)
+    current = text_columns(current)
     out = []
     for name, column in profile.columns.items():
         if column.kind not in ("categorical", "boolean"):
@@ -210,6 +217,7 @@ def check_duplicates(profile: DataQualityProfile, current: pd.DataFrame, policy=
     profile's duplicate_columns (a key) or every profiled column present in the window (default threshold: reference
     share + 0.01)"""
     policy = DataQualityPolicy.load(policy)
+    current = text_columns(current)
     threshold = policy.threshold("duplicate_share", None, profile.duplicate_share)
     if threshold is None:
         return []
@@ -235,6 +243,7 @@ def check_rules(profile: DataQualityProfile, current: pd.DataFrame, policy=None)
     """`rule_violation_share` per row rule (feature = rule id): share of the judged rows (both sides present) that
     break the rule (default threshold: reference share + 0.01)"""
     policy = DataQualityPolicy.load(policy)
+    current = text_columns(current)
     out = []
     for rule in profile.rules:
         threshold = policy.threshold("rule_violation_share", rule.id, rule.reference_share or 0.0)
