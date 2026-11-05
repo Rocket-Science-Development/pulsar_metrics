@@ -262,13 +262,14 @@ def test_rule_violation_share(profile):
 
 
 # ----------------------------------------------------------------------------------------------- checks: not evaluable
-def test_an_empty_window_gives_not_evaluable_value_checks_and_a_schema_check(profile):
-    results = check(profile, frame(10, 11).iloc[:0])
+@pytest.mark.parametrize("columns", [True, False], ids=["with columns", "no column"])
+def test_an_empty_window_gives_only_not_evaluable_checks(profile, columns):
+    window = frame(10, 11).iloc[:0] if columns else pd.DataFrame()  # an empty query result has no columns either
+    results = check(profile, window)
     schema = [r for r in results if r.metric_name == "schema"]
-    assert schema and all(r.drift_status is False for r in schema)
-    others = [r for r in results if r.metric_name != "schema"]
-    assert others and all(r.status == "empty_window" and r.metric_value is None and r.drift_status is None for r in others)
-    assert all(r.reliable is False and r.reliability_reason == NOT_EVALUABLE["empty_window"] for r in others)
+    assert len(schema) == len(profile.columns)
+    assert results and all(r.status == "empty_window" and r.metric_value is None and r.drift_status is None for r in results)
+    assert all(r.reliable is False and r.reliability_reason == NOT_EVALUABLE["empty_window"] for r in results)
 
 
 def test_checks_that_cannot_run_say_why(profile):
@@ -315,7 +316,7 @@ def test_analyzer_filters_on_the_model_and_records_an_empty_window(profile):
     analyzer = DataQualityAnalyzer("q", model_id="no2", model_version="1", profile=profile)
     other = frame(100, 16).assign(model_id="other")
     analyzer.run(other)
-    assert {r.status for r in analyzer.get_result() if r.metric_name != "schema"} == {"empty_window"}
+    assert {r.status for r in analyzer.get_result()} == {"empty_window"}
     with pytest.raises(CustomExceptionPulsarMetric):
         DataQualityAnalyzer("q").run(frame(10, 17))  # no profile, no reference
 
@@ -371,7 +372,11 @@ def test_evidence_of_checks_that_cannot_run_is_not_evaluable_with_a_reason_code(
     analyzer.run(frame(10, 21).iloc[:0])
     with pytest.warns(UserWarning, match="without window start"):  # no row: no period
         empty = to_evidence(analyzer, "SYS")
-    assert {r.reliability.reasons[0] for r in empty if r.metric.name != "schema"} == {"empty_window"}
+    assert {r.reliability.reasons[0] for r in empty} == {"empty_window"}
+    analyzer.run(pd.DataFrame())  # no row and no column: no alert, nothing reliable
+    with pytest.warns(UserWarning, match="without window start"):
+        empty = to_evidence(analyzer, "SYS")
+    assert {r.metric.status for r in empty} == {"not_evaluable"} and not any(r.reliability.reliable for r in empty)
 
 
 def test_data_quality_records_validate_against_the_committed_schema(profile):

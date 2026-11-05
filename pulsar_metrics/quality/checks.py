@@ -73,11 +73,14 @@ def check_schema(profile: DataQualityProfile, current: pd.DataFrame, policy=None
     allow_new_columns) or of another kind (numeric, categorical, boolean, datetime), 0 otherwise; threshold 0
 
     The kind is read on the non-missing values, so that an integer or boolean column holding missing values keeps
-    its kind; a column without any value in the window is not judged on its kind (its null_share record says it).
+    its kind; a column without any value in the window is not judged on its kind (its null_share record says it). A
+    window without any row is not judged at all (`empty_window`): an empty query result has no columns either.
     """
     policy = DataQualityPolicy.load(policy)
     if not policy.schema:
         return []
+    if current.shape[0] == 0:
+        return [_not_evaluable("schema", name, "empty_window", 0) for name in profile.columns if policy.schema_checked(name)]
     out = []
     for name, column in profile.columns.items():
         if not policy.schema_checked(name):
@@ -113,10 +116,10 @@ def check_nulls(profile: DataQualityProfile, current: pd.DataFrame, policy=None)
         threshold = policy.threshold("null_share", name, column.null_share)
         if threshold is None:
             continue
-        if name not in current.columns:
-            out.append(_not_evaluable("null_share", name, "missing_in_window", threshold))
-        elif n == 0:
+        if n == 0:  # before the columns: an empty query result has none
             out.append(_not_evaluable("null_share", name, "empty_window", threshold))
+        elif name not in current.columns:
+            out.append(_not_evaluable("null_share", name, "missing_in_window", threshold))
         else:
             value = float(current[name].isna().mean())
             method = f"missing values: {int(current[name].isna().sum())} of {n} rows (reference {column.null_share:.4g})"
@@ -211,6 +214,8 @@ def check_duplicates(profile: DataQualityProfile, current: pd.DataFrame, policy=
     if threshold is None:
         return []
     n = int(current.shape[0])
+    if n == 0:
+        return [_not_evaluable("duplicate_share", None, "empty_window", threshold)]
     if profile.duplicate_columns:
         columns = list(profile.duplicate_columns)
         if any(c not in current.columns for c in columns):
@@ -221,8 +226,6 @@ def check_duplicates(profile: DataQualityProfile, current: pd.DataFrame, policy=
         on = f"{len(columns)} of {len(profile.columns)} profiled columns"
         if not columns:
             return [_not_evaluable("duplicate_share", None, "missing_in_window", threshold, n)]
-    if n == 0:
-        return [_not_evaluable("duplicate_share", None, "empty_window", threshold)]
     value = duplicate_share(current[columns])
     method = f"{int(round(value * n))} of {n} rows repeat an earlier row ({on}; reference {profile.duplicate_share:.4g})"
     return [_result("duplicate_share", None, value, threshold, n, method)]
@@ -238,11 +241,11 @@ def check_rules(profile: DataQualityProfile, current: pd.DataFrame, policy=None)
         if threshold is None:
             continue
         n = int(current.shape[0])
-        if any(c not in current.columns for c in rule.columns):
-            out.append(_not_evaluable("rule_violation_share", rule.id, "missing_in_window", threshold, n))
-            continue
         if n == 0:
             out.append(_not_evaluable("rule_violation_share", rule.id, "empty_window", threshold))
+            continue
+        if any(c not in current.columns for c in rule.columns):
+            out.append(_not_evaluable("rule_violation_share", rule.id, "missing_in_window", threshold, n))
             continue
         violating, judged = rule.violations(current)
         if judged == 0:
@@ -255,10 +258,10 @@ def check_rules(profile: DataQualityProfile, current: pd.DataFrame, policy=None)
 
 def _unavailable(name: str, current: pd.DataFrame, no_reference_values: bool) -> Optional[str]:
     """Code of a value check that cannot run on the column, or None"""
-    if name not in current.columns:
-        return "missing_in_window"
     if current.shape[0] == 0:
         return "empty_window"
+    if name not in current.columns:
+        return "missing_in_window"
     if no_reference_values:
         return "no_reference_values"
     if not current[name].notna().any():
