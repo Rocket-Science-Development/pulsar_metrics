@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Sequence, Union
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+from .profile import QUANTILES, quantile_key
 
 # checks whose value is a share of rows: alert when the share of the window is above the threshold
 SHARE_CHECKS = ("null_share", "out_of_range_share", "unseen_category_share", "duplicate_share", "rule_violation_share")
@@ -44,6 +45,10 @@ def _quantiles(spec, where: str) -> Optional[tuple]:
         return None
     if not isinstance(spec, (list, tuple)) or len(spec) != 2 or not 0 <= spec[0] < spec[1] <= 1:
         raise error_msg(value=spec, message=f"{where}range_quantiles must be [low, high] levels, 0 <= low < high <= 1")
+    known = {quantile_key(q) for q in QUANTILES}
+    unknown = [level for level in spec if quantile_key(float(level)) not in known]
+    if unknown:  # the profile keeps these levels only: found here rather than when every check runs
+        raise error_msg(value=unknown, message=f"{where}range_quantiles levels must be among {QUANTILES} (the profile's)")
     return float(spec[0]), float(spec[1])
 
 

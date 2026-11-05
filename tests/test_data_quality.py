@@ -164,6 +164,8 @@ def test_policy_from_a_yaml_file(tmp_path):
         {"null_share": {"maximum": 0.1}},
         {"columns": {"rh": {"null_shar": 0.1}}},
         {"range_quantiles": [0.99, 0.01]},
+        {"range_quantiles": [0.02, 0.98]},  # levels the profile does not keep (QUANTILES)
+        {"columns": {"rh": {"range_quantiles": [0.001, 0.9]}}},
     ],
 )
 def test_policy_refuses_unknown_keys_and_shares_out_of_bounds(data):
@@ -259,6 +261,12 @@ def test_rule_violation_share(profile):
     current.loc[current.index[:40], "dew"] = current["temp"][:40] + 2
     result = by_key(check_rules(profile, current))[("rule_violation_share", "dew <= temp")]
     assert (result.metric_value, result.drift_status, result.n) == (0.1, True, 400)
+
+
+def test_a_rule_without_reference_share_is_checked(profile):
+    unfitted = profile.model_copy(update={"rules": [RowRule.of("dew <= temp")]})  # reference_share None
+    (result,) = check_rules(unfitted, frame(100, 10))
+    assert result.metric_value == 0.0 and result.drift_status is False and "reference 0" in result.method
 
 
 # ----------------------------------------------------------------------------------------------- checks: not evaluable

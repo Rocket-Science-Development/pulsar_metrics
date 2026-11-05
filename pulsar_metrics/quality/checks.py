@@ -251,7 +251,8 @@ def check_rules(profile: DataQualityProfile, current: pd.DataFrame, policy=None)
         if judged == 0:
             out.append(_not_evaluable("rule_violation_share", rule.id, "no_values_in_window", threshold, n))
             continue
-        method = f"{rule.expression}: {violating} of {judged} judged rows break it (reference {rule.reference_share:.4g})"
+        reference = rule.reference_share or 0.0  # a rule given without its reference share (not fitted)
+        method = f"{rule.expression}: {violating} of {judged} judged rows break it (reference {reference:.4g})"
         out.append(_result("rule_violation_share", rule.id, violating / judged, threshold, judged, method))
     return out
 
