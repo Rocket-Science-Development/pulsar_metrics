@@ -1,6 +1,6 @@
 [project]
 name = "pulsar-metrics"
-version = "0.13.0"
+version = "0.14.0"
 description = "Pulsar-metrics is an open-source Python library for evaluating and monitoring data and concept drift with an extensive set of metrics. It also offers the possibility to use custom metrics defined by the user."
 authors = [
   { name = "Adel Benlagra", email = "abenlagra@rocketscience.one" },

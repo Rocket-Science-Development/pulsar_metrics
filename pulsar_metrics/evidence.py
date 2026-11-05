@@ -40,9 +40,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .metrics import constant
 from .metrics.base import MetricResults
-from .metrics.drift import CONSTANT_REFERENCE, SPARSE_SHARE, WINDOW_RATIO
+from .metrics.drift import CONSTANT_REFERENCE, RATE_METRICS, SPARSE_SHARE, WINDOW_RATIO
 from .metrics.enums import DriftTestMetricsFuncs
 from .metrics.performance import MIN_LABELLED
+from .quality.checks import METRIC_TYPE as DATA_QUALITY
+from .quality.checks import NOT_EVALUABLE as DATA_QUALITY_NOT_EVALUABLE
 
 SCHEMA_VERSION = "pulsar.evidence/1"
 SCHEMA_ID = "https://github.com/Rocket-Science-Development/pulsar_metrics/schemas/evidence-1.json"
@@ -63,11 +65,21 @@ _FAMILIES = {
     "fairness": "fairness",
     "agents": "compliance",
     "statistics": "data_quality",
+    "data_quality": "data_quality",  # pulsar_metrics.quality checks
     "explainability": "explainability",
     "custom": "custom",
 }
 # drift results of pulsar_metrics.genai (embedding_drift, model_equality): value is a statistic, verdict on p_value
-GENAI_METRICS = ("embedding_mean_shift", "embedding_novelty", "model_equality")
+GENAI_METRICS = (
+    "embedding_mean_shift",
+    "embedding_novelty",
+    "model_equality",
+    "consistency_drift",
+    "consistency_full_agreement_drift",
+)
+# window metrics of pulsar_metrics.genai.consistency (metric_type custom): value with an interval, minimum acceptable
+CONSISTENCY_METRICS = ("consistency_agreement", "consistency_full_agreement")
+CONSISTENCY_STATUSES = ("few_repeats", "few_questions")  # pulsar_metrics.genai.consistency: raw status -> reason code
 SMALL_CANARY_ANSWERS = 480  # pulsar_metrics.genai.RECOMMENDED_CANARY["answers"]
 POINT_ESTIMATE_DECISIONS = ("unusable_rate",)  # fairness results decided on the value, not on their interval
 UNSTABLE_REFERENCE = "unstable_reference"  # pulsar_metrics.explain: the ranking is not stable on the reference
@@ -91,6 +103,9 @@ REASON_CODES = {
     "non_finite_value": "the value is NaN or infinite (exported as null, see details.value_non_finite): the verdict "
     "cannot be checked against the threshold",
     "unstable_reference": "explainability: the attribution ranking is not stable on the reference window, no verdict",
+    **DATA_QUALITY_NOT_EVALUABLE,  # pulsar_metrics.quality: empty_window, not_in_reference, missing_in_window, ...
+    "few_repeats": "consistency: too few answers per question (median below min_repeats, default 3)",
+    "few_questions": "consistency: too few questions in a window (below min_questions, default 10)",
 }
 # Codes of Reliability.notes: they lower the confidence without making `reliable` False
 NOTE_CODES = {
@@ -442,7 +457,9 @@ def _family(result: MetricResults) -> str:
     if result.metric_type == "drift" and (
         result.metric_name in GENAI_METRICS or (result.metric_name == "mmd" and result.p_value is not None)
     ):
-        return "genai"  # pulsar_metrics.genai: embedding_drift, model_equality
+        return "genai"  # pulsar_metrics.genai: embedding_drift, model_equality, consistency_drift
+    if result.metric_name in CONSISTENCY_METRICS:
+        return "genai"  # pulsar_metrics.genai.consistency
     return _FAMILIES.get(result.metric_type, "custom")
 
 
@@ -452,6 +469,8 @@ def _decision(result: MetricResults, family: str, threshold, upper_bound: Option
         return "none", "none"
     if result.test_type == "sequential":
         return "outside", "sequential_test"
+    if result.metric_name in CONSISTENCY_METRICS:
+        return "lower", "value"  # minimum acceptable consistency: alert below it
     if _position_test(result):
         return "lower", "p_value"  # two-sided binomial test against 0.5: alert when its p-value is below alpha
     if result.metric_name in DriftTestMetricsFuncs._member_names_ or family == "genai":
@@ -487,6 +506,25 @@ def _alpha(method: Optional[str]) -> Optional[float]:
     return float(match.group(1)) if match else None
 
 
+_RATES = re.compile(r"window (\d+)/(\d+) = [^ ]+ vs reference (\d+)/(\d+)")
+
+
+def _rates(result: MetricResults) -> dict:
+    """rate_increase (DriftTestMetric): the counts and rates of the window and of the reference, from `method`"""
+    match = _RATES.search(result.method or "") if result.metric_name in RATE_METRICS else None
+    if match is None:
+        return {}
+    count, n, ref_count, ref_n = (int(g) for g in match.groups())
+    return {
+        "current_count": count,
+        "current_n": n,
+        "current_rate": count / n,
+        "reference_count": ref_count,
+        "reference_n": ref_n,
+        "reference_rate": ref_count / ref_n,
+    }
+
+
 def _rules_version(method: Optional[str]) -> Optional[str]:
     """ComplianceMonitor.evaluate: the rules version is in the method ("<formula> [<severity>; rules <version>]...")"""
     match = re.search(r"; rules ([^\]]+)\]", method or "")
@@ -504,9 +542,17 @@ def _threshold(threshold):
     return _number(threshold)
 
 
+def _data_quality_not_evaluable(result: MetricResults) -> bool:
+    return result.metric_type == DATA_QUALITY and result.status in DATA_QUALITY_NOT_EVALUABLE
+
+
 def _status(result: MetricResults) -> str:
+    if _data_quality_not_evaluable(result):
+        return "not_evaluable"
     if result.suppressed or result.status == "not_evaluable":
         return "not_evaluable"
+    if result.error is not None and result.metric_value is None and result.status in CONSISTENCY_STATUSES:
+        return "not_evaluable"  # consistency: no question with enough answers
     if result.error is not None and result.metric_value is None:
         # results refused for their labels carry n_labelled (performance, fairness); failures of the computation do not
         return "not_evaluable" if result.n_labelled is not None else "error"
@@ -606,6 +652,8 @@ def _reliability(
         add(reasons, "instrument_unusable")
     if result.status == UNSTABLE_REFERENCE:
         add(reasons, UNSTABLE_REFERENCE)
+    if _data_quality_not_evaluable(result) or result.status in CONSISTENCY_STATUSES:
+        add(reasons, result.status)
     if non_finite and status in ("ok", "alert", "no_verdict"):
         add(reasons, "non_finite_value")
     if family in ("performance", "fairness") and result.n_labelled is not None:
@@ -695,7 +743,8 @@ def evidence_from_result(
     family : str, optional
         Overrides the family inferred from metric_type and metric_name
     details : dict, optional
-        Extra aggregates, merged over the ones taken from the result (conf_int, raw status). Never raw rows
+        Extra aggregates, merged over the ones taken from the result (conf_int, raw status; for rate_increase the
+        counts and rates of the window and of the reference). Never raw rows
 
     A record whose window has no start, end nor id gets an evidence_id that includes produced_at (UserWarning): pass
     window={"id": ...} (batch, run or period id) so that the same finding sent again keeps its id.
@@ -703,12 +752,13 @@ def evidence_from_result(
     options = options or {}
     family = family or _family(result)
     threshold, extra = result.threshold, {}
-    if family == "data_quality" or not (
+    if (family == "data_quality" and result.metric_type != DATA_QUALITY) or not (
         threshold is None
         or (isinstance(threshold, Number) and not isinstance(threshold, bool))
         or (isinstance(threshold, list) and all(isinstance(t, Number) for t in threshold))
     ):
-        # summary statistics: the "threshold" is the statistic of the reference, not a decision threshold
+        # summary statistics: the "threshold" is the statistic of the reference, not a decision threshold (the checks
+        # of pulsar_metrics.quality, metric_type "data_quality", carry a real one: alert above it)
         if threshold is not None:
             extra["reference_value"] = threshold
         threshold = None
@@ -728,6 +778,7 @@ def evidence_from_result(
         extra["pulsar_status"] = result.status
     if result.test_type is not None:
         extra["test_type"] = result.test_type
+    extra.update(_rates(result))
     if family == "compliance" and _rules_version(result.method) is not None:
         extra["rules_version"] = _rules_version(result.method)
     non_finite = isinstance(result.metric_value, float) and not math.isfinite(result.metric_value)
@@ -816,7 +867,10 @@ def evidence_from_analyzer(
     info = getattr(analyzer, "_window_info", {}) or {}
     window = Window(start=meta.get("period_start"), end=meta.get("period_end"), n_rows=info.get("n_current"))
     reference = Reference(
-        id=reference_id, start=info.get("reference_start"), end=info.get("reference_end"), n_rows=info.get("n_reference")
+        id=reference_id or info.get("reference_id"),
+        start=info.get("reference_start"),
+        end=info.get("reference_end"),
+        n_rows=info.get("n_reference"),
     )
     kept = [r for r in results if include_statistics or r.metric_type != "statistics"]
     return evidence_from_results(
@@ -835,8 +889,8 @@ def evidence_from_analyzer(
 
 
 def to_evidence(source, system_id: str, **kwargs) -> list[Evidence]:
-    """Evidence records of any result source: an Analyzer after run(), a FairnessAnalyzer after run() (results and
-    coverage), one MetricResults or a list of them. kwargs go to the matching converter."""
+    """Evidence records of any result source: an Analyzer or a DataQualityAnalyzer after run(), a FairnessAnalyzer
+    after run() (results and coverage), one MetricResults or a list of them. kwargs go to the matching converter."""
     from .analyzers.base import AbstractAnalyzer
     from .fairness.analyzer import FairnessAnalyzer
 

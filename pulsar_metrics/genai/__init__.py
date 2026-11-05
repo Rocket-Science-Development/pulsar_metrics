@@ -13,6 +13,7 @@ from .compliance import (
     load_rules,
     trace_from,
 )
+from .consistency import consistency, consistency_drift, question_agreement
 from .mmd import component_test, detection_power, embedding_drift, mmd_test, novelty_test
 from .model_equality import RECOMMENDED_CANARY, model_equality, model_equality_power, model_equality_test
 
@@ -27,6 +28,8 @@ __all__ = [
     "Rule",
     "RuleNotEvaluable",
     "component_test",
+    "consistency",
+    "consistency_drift",
     "detection_power",
     "embedding_drift",
     "load_rules",
@@ -35,5 +38,6 @@ __all__ = [
     "model_equality_power",
     "model_equality_test",
     "novelty_test",
+    "question_agreement",
     "trace_from",
 ]

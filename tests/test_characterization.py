@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pulsar_metrics.metrics.drift import DriftMetric, DriftTestMetric
+from pulsar_metrics.metrics.drift import RATE_METRICS, DriftMetric, DriftTestMetric
 from pulsar_metrics.metrics.enums import DriftMetricsFuncs, DriftTestMetricsFuncs, PerformanceMetricsFuncs
 from pulsar_metrics.metrics.performance import PerformanceMetric
 from pulsar_metrics.metrics.statistics import FeatureSummary
@@ -85,6 +85,8 @@ def build_metrics():
         for f in FEATURES:
             metrics.append((metric_key(name, f), DriftMetric(metric_name=name, feature_name=f), {"threshold": DRIFT_THRESHOLD}))
     for name in DriftTestMetricsFuncs._member_names_:
+        if name in RATE_METRICS:
+            continue  # 0 / 1 indicators only, none in this dataset: frozen in tests/test_rate_increase.py
         for f in FEATURES:
             metrics.append((metric_key(name, f), DriftTestMetric(metric_name=name, feature_name=f), {"alpha": ALPHA}))
     for name in PerformanceMetricsFuncs._member_names_:

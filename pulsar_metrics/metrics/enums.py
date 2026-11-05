@@ -33,6 +33,7 @@ from .utils import (
     max_mean_discrepency,
     missing_rate_test,
     population_stability_index,
+    rate_increase_test,
 )
 
 
@@ -46,6 +47,7 @@ class MetricsType(Enum):
     fairness = "fairness"
     explainability = "explainability"
     agents = "agents"
+    data_quality = "data_quality"
 
 
 class DriftMetricsFuncs(Enum):
@@ -64,6 +66,7 @@ class DriftTestMetricsFuncs(Enum):
     CvM = member(partial(cramervonmises_2samp))
     chi2 = member(partial(chi2_test))
     missing_rate = member(partial(missing_rate_test))
+    rate_increase = member(partial(rate_increase_test))
 
 
 class PerformanceMetricsFuncs(Enum):
