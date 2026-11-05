@@ -67,7 +67,16 @@ _FAMILIES = {
     "custom": "custom",
 }
 # drift results of pulsar_metrics.genai (embedding_drift, model_equality): value is a statistic, verdict on p_value
-GENAI_METRICS = ("embedding_mean_shift", "embedding_novelty", "model_equality")
+GENAI_METRICS = (
+    "embedding_mean_shift",
+    "embedding_novelty",
+    "model_equality",
+    "consistency_drift",
+    "consistency_full_agreement_drift",
+)
+# window metrics of pulsar_metrics.genai.consistency (metric_type custom): value with an interval, minimum acceptable
+CONSISTENCY_METRICS = ("consistency_agreement", "consistency_full_agreement")
+CONSISTENCY_STATUSES = ("few_repeats", "few_questions")  # pulsar_metrics.genai.consistency: raw status -> reason code
 SMALL_CANARY_ANSWERS = 480  # pulsar_metrics.genai.RECOMMENDED_CANARY["answers"]
 POINT_ESTIMATE_DECISIONS = ("unusable_rate",)  # fairness results decided on the value, not on their interval
 UNSTABLE_REFERENCE = "unstable_reference"  # pulsar_metrics.explain: the ranking is not stable on the reference
@@ -91,6 +100,8 @@ REASON_CODES = {
     "non_finite_value": "the value is NaN or infinite (exported as null, see details.value_non_finite): the verdict "
     "cannot be checked against the threshold",
     "unstable_reference": "explainability: the attribution ranking is not stable on the reference window, no verdict",
+    "few_repeats": "consistency: too few answers per question (median below min_repeats, default 3)",
+    "few_questions": "consistency: too few questions in a window (below min_questions, default 10)",
 }
 # Codes of Reliability.notes: they lower the confidence without making `reliable` False
 NOTE_CODES = {
@@ -442,7 +453,9 @@ def _family(result: MetricResults) -> str:
     if result.metric_type == "drift" and (
         result.metric_name in GENAI_METRICS or (result.metric_name == "mmd" and result.p_value is not None)
     ):
-        return "genai"  # pulsar_metrics.genai: embedding_drift, model_equality
+        return "genai"  # pulsar_metrics.genai: embedding_drift, model_equality, consistency_drift
+    if result.metric_name in CONSISTENCY_METRICS:
+        return "genai"  # pulsar_metrics.genai.consistency
     return _FAMILIES.get(result.metric_type, "custom")
 
 
@@ -452,6 +465,8 @@ def _decision(result: MetricResults, family: str, threshold, upper_bound: Option
         return "none", "none"
     if result.test_type == "sequential":
         return "outside", "sequential_test"
+    if result.metric_name in CONSISTENCY_METRICS:
+        return "lower", "value"  # minimum acceptable consistency: alert below it
     if _position_test(result):
         return "lower", "p_value"  # two-sided binomial test against 0.5: alert when its p-value is below alpha
     if result.metric_name in DriftTestMetricsFuncs._member_names_ or family == "genai":
@@ -507,6 +522,8 @@ def _threshold(threshold):
 def _status(result: MetricResults) -> str:
     if result.suppressed or result.status == "not_evaluable":
         return "not_evaluable"
+    if result.error is not None and result.metric_value is None and result.status in CONSISTENCY_STATUSES:
+        return "not_evaluable"  # consistency: no question with enough answers
     if result.error is not None and result.metric_value is None:
         # results refused for their labels carry n_labelled (performance, fairness); failures of the computation do not
         return "not_evaluable" if result.n_labelled is not None else "error"
@@ -606,6 +623,8 @@ def _reliability(
         add(reasons, "instrument_unusable")
     if result.status == UNSTABLE_REFERENCE:
         add(reasons, UNSTABLE_REFERENCE)
+    if result.status in CONSISTENCY_STATUSES:
+        add(reasons, result.status)
     if non_finite and status in ("ok", "alert", "no_verdict"):
         add(reasons, "non_finite_value")
     if family in ("performance", "fairness") and result.n_labelled is not None:
