@@ -18,7 +18,8 @@ All notable changes to pulsar-metrics. The format follows [Keep a Changelog](htt
   `to_evidence()`). A signal whose column is absent or too sparse is not evaluable, not an error: the evidence
   reason codes `missing_signal`, `few_values` and `no_signal`, and the notes `partial_signals` and `small_window`
   (fewer than 20 runs), are new (additive, the format stays `pulsar.evidence/1`). The combined decision is exported
-  as `rag_drift_trigger` in the `genai` family. Abstention and unsupported-answer rates stay governance indicators
+  as `rag_drift_trigger` in the `genai` family; it is unreliable when a signal it rests on is (e.g. a
+  `constant_reference`). Abstention and unsupported-answer rates stay governance indicators
   outside the trigger. No existing default changes.
 
 ## [0.14.0] - 2026-11-05

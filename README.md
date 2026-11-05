@@ -756,7 +756,11 @@ A signal whose column is absent from the window or the reference is **not evalua
 code `missing_signal`; `few_values` below its minimum count), not an error: the decision rests on the other signals
 with the factor of all three (conservative, as in the replay) and the decision record gets the note
 `partial_signals`. With no evaluable signal the window has no verdict (`no_signal`) and the persistence streaks are
-kept. A test that fails (e.g. a value other than 0 / 1 in the indicator) gives an `error` record for that signal.
+kept. A test that fails (e.g. a value other than 0 / 1 in the indicator) gives an `error` record for that signal. A
+signal evaluated on a degenerate reference (e.g. a faithfulness score saturated at 1.0, `constant_reference`) makes
+the decision record unreliable too (`reliable=false`, reason `constant_reference`). `alternative` is accepted for
+`manwu` and `ttest` only (for `ks_2samp`, scipy's `"less"` means the window is higher), and two signals may not
+apply the same test to the same column (their evidence records would share an id).
 
 Where the defaults come from: the replay of the night-lab campaign LR-03 in pulsar_demo
 (`lab/replay/declencheur_derive.py`, report `lab/rapports/rapport_fiabilite_declencheur.md`): 1,800 runs of the demo

@@ -336,3 +336,47 @@ def test_reset_forgets_the_persistence():
     trigger.evaluate(runs(rng, 100, faithfulness_drop=0.25), reference)
     trigger.reset()
     assert trigger.evaluate(runs(rng, 100, faithfulness_drop=0.25), reference).confirmed is False
+
+
+# -------------------------------------------------------------------------------------------- independent review fixes
+def test_a_degenerate_signal_makes_the_decision_unreliable():
+    """A saturated faithfulness reference (all 1.0) flags its signal constant_reference: the decision it carries is
+    provisional too"""
+    rng = np.random.default_rng(14)
+    reference = runs(rng, 300).assign(det_faithfulness=1.0)
+    current = runs(rng, 100, faithfulness_drop=0.25)
+    decision = RAGDriftTrigger().evaluate(current, reference)
+    assert decision.drift is True and decision.signals[0].status == "constant_reference"
+    assert decision.result.reliable is False and "faithfulness" in decision.result.reliability_reason
+    combined = decision.to_evidence("RAG-01", window={"id": "w1"})[-1]
+    assert combined.metric.status == "alert" and not combined.reliability.reliable
+    assert combined.reliability.reasons == ["constant_reference"]
+    clean = RAGDriftTrigger().evaluate(current, runs(rng, 300)).to_evidence("RAG-01", window={"id": "w1"})[-1]
+    assert clean.reliability.reliable
+
+
+def test_alternative_is_validated_and_two_sided_is_labelled():
+    with pytest.raises(CustomExceptionPulsarMetric):
+        TriggerSignal("x", "x", "manwu", alternative="lower")
+    with pytest.raises(CustomExceptionPulsarMetric):
+        TriggerSignal("x", "x", "ks_2samp", alternative="less")  # scipy's "less" means the window is higher there
+    with pytest.raises(CustomExceptionPulsarMetric):
+        TriggerSignal("x", "x", "levene", alternative="greater")
+    TriggerSignal("x", "x", "ks_2samp")  # two-sided is fine
+    rng = np.random.default_rng(15)
+    signal = TriggerSignal("faithfulness_any", "det_faithfulness", "manwu", "two-sided")
+    decision = RAGDriftTrigger(signals=[signal]).evaluate(runs(rng, 100), runs(rng, 300))
+    assert decision.signals[0].method.startswith("manwu, two-sided;")
+
+
+def test_window_objects_duplicates_and_boolean_persistence():
+    from pulsar_metrics.evidence import Reference, Window
+
+    rng = np.random.default_rng(16)
+    decision = RAGDriftTrigger().evaluate(runs(rng, 100), runs(rng, 300))
+    records = decision.to_evidence("RAG-01", window=Window(id="w1"), reference=Reference(id="ref"))
+    assert records[-1].window.id == "w1" and records[-1].window.n_rows == 100 and records[-1].reference.n_rows == 300
+    with pytest.raises(CustomExceptionPulsarMetric, match="same test to the same column"):
+        RAGDriftTrigger(signals=["faithfulness", TriggerSignal("faith2", "det_faithfulness", "manwu", "less")])
+    with pytest.raises(CustomExceptionPulsarMetric):
+        RAGDriftTrigger(persistence=True)

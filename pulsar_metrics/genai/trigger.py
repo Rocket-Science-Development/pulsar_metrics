@@ -35,13 +35,17 @@ from ..evidence import Evidence, evidence_from_result
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..exceptions import MetricEvaluationError
 from ..metrics.base import MetricResults
-from ..metrics.drift import RATE_METRICS, DriftTestMetric
+from ..metrics.drift import CONSTANT_REFERENCE, RATE_METRICS, DriftTestMetric
 from ..metrics.enums import DriftTestMetricsFuncs, MetricsType
 
 TRIGGER_METRIC = "rag_drift_trigger"
 # status of a signal (or of the whole trigger) that cannot be evaluated; reliability reason codes of the evidence
 MISSING_SIGNAL, FEW_VALUES, NO_SIGNAL = "missing_signal", "few_values", "no_signal"
 MIN_WINDOW_RUNS = 20  # below, the window carries too few affected runs (night lab, register of AI, windows of 8)
+
+# tests whose scipy `alternative` reads "less" as "the window (first sample) is lower"
+ALTERNATIVE_TESTS = ("manwu", "ttest")
+ALTERNATIVES = (None, "less", "greater", "two-sided")
 
 Records = Union[pd.DataFrame, Iterable[Mapping]]
 
@@ -59,9 +63,9 @@ class TriggerSignal:
     test : str, optional
         A DriftTestMetric test (default "manwu"); "rate_increase" for a 0 / 1 indicator (one-sided by construction)
     alternative : str, optional
-        Passed to the test (scipy convention, the window first): "less" alerts when the window is lower, "greater"
-        when it is higher; None (default) keeps the test's own default (two-sided for manwu). Not allowed with
-        rate_increase
+        manwu and ttest only (the window first): "less" alerts when the window is lower, "greater" when it is higher,
+        "two-sided" either way; None (default) keeps the test's own default (two-sided). Not allowed with the other
+        tests: rate_increase is one-sided by construction, and for ks_2samp scipy's "less" means the window is higher
     min_values : int, optional
         Fewest non-missing values in the window and in the reference (default 5, as in the replay for the rank tests);
         below, the signal is not evaluable (status "few_values")
@@ -78,6 +82,10 @@ class TriggerSignal:
             raise error_msg(value=self.test, message=f"test must be one of {DriftTestMetricsFuncs._member_names_}")
         if self.test in RATE_METRICS and self.alternative is not None:
             raise error_msg(value=self.alternative, message=f"{self.test} is one-sided (window higher): no alternative")
+        if self.alternative is not None and self.test not in ALTERNATIVE_TESTS:
+            raise error_msg(value=self.test, message=f"alternative is supported for {ALTERNATIVE_TESTS} only")
+        if self.alternative not in ALTERNATIVES:
+            raise error_msg(value=self.alternative, message=f"alternative must be one of {ALTERNATIVES}")
         if not isinstance(self.min_values, int) or isinstance(self.min_values, bool) or self.min_values < 1:
             raise error_msg(value=self.min_values, message="min_values must be a positive integer")
 
@@ -121,6 +129,15 @@ def _frame(records: Records, what: str) -> pd.DataFrame:
         raise error_msg(value=what, message=f"{what} must be a DataFrame or an iterable of run records: {e}") from e
 
 
+def _block(value) -> dict:
+    """Window or Reference block given as a dict or as the pydantic model of pulsar_metrics.evidence"""
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        return value.model_dump(exclude_none=True)
+    return dict(value)
+
+
 def _resolve_signals(signals, columns: Optional[Mapping[str, str]]) -> tuple:
     defaults = {s.name: s for s in RAG_TRIGGER_SIGNALS}
     out = []
@@ -137,6 +154,10 @@ def _resolve_signals(signals, columns: Optional[Mapping[str, str]]) -> tuple:
     names = [s.name for s in out]
     if len(set(names)) != len(names):
         raise error_msg(value=names, message="signal names must be unique")
+    pairs = [((columns or {}).get(s.name, s.column), s.test) for s in out]
+    if len(set(pairs)) != len(pairs):
+        # the signal name is not part of the evidence_id: two such records would overwrite each other
+        raise error_msg(value=pairs, message="two signals apply the same test to the same column")
     unknown = set(columns or {}) - set(names)
     if unknown:
         raise error_msg(value=sorted(unknown), message="columns names signals the trigger does not have")
@@ -146,7 +167,7 @@ def _resolve_signals(signals, columns: Optional[Mapping[str, str]]) -> tuple:
 def _direction(signal: TriggerSignal) -> str:
     if signal.test in RATE_METRICS:
         return "window higher"
-    return {"less": "window lower", "greater": "window higher"}.get(signal.alternative, "two-sided")
+    return {"less": "one-sided, window lower", "greater": "one-sided, window higher"}.get(signal.alternative, "two-sided")
 
 
 @dataclass
@@ -221,7 +242,7 @@ class TriggerDecision:
         ----------
         system_id : str
             External identifier of the monitored system
-        window, reference : dict, optional
+        window, reference : dict, Window or Reference, optional
             Window and reference blocks (id, start, end); n_rows is filled from the frames when absent. Pass a window
             id (or start and end) so that the same finding sent again keeps its evidence_id
         include_signals : bool, optional
@@ -235,8 +256,8 @@ class TriggerDecision:
         details.trigger holds the settings and the p-value of every signal. A signal that cannot be evaluated is
         exported as not_evaluable with its reason code (missing_signal, few_values).
         """
-        window = {"n_rows": self.settings.get("n_current"), **(window or {})}
-        reference = {"n_rows": self.settings.get("n_reference"), **(reference or {})}
+        window = {"n_rows": self.settings.get("n_current"), **_block(window)}
+        reference = {"n_rows": self.settings.get("n_reference"), **_block(reference)}
         records = []
         if include_signals:
             for name, result in zip(self.names, self.signals):
@@ -321,6 +342,8 @@ class RAGDriftTrigger:
     ):
         if isinstance(alpha, bool) or not isinstance(alpha, (int, float)) or not 0 < alpha < 1:
             raise error_msg(value=alpha, message="alpha must be in (0, 1)")
+        if isinstance(persistence, bool):
+            raise error_msg(value=persistence, message="persistence must be a positive integer")
         self.signals = _resolve_signals(signals, columns)
         self.alpha = float(alpha)
         self._persistence = DriftPersistence(windows=persistence, metric_types=(MetricsType.drift.value,))
@@ -380,8 +403,7 @@ class RAGDriftTrigger:
         if signal.test in RATE_METRICS:
             result.method = f"{result.method}; {rule}"  # keeps the rates read back by pulsar_metrics.evidence
         else:
-            result.method = f"{signal.test}, one-sided {_direction(signal)}" if kwargs else f"{signal.test}, two-sided"
-            result.method += f"; {rule}"
+            result.method = f"{signal.test}, {_direction(signal)}; {rule}"
         return result
 
     def evaluate(self, current: Records, reference: Records) -> TriggerDecision:
@@ -436,6 +458,18 @@ class RAGDriftTrigger:
                 n=len(current),
                 method=method,
             )
+            # a signal evaluated on a degenerate reference (e.g. a saturated faithfulness score) or flagged
+            # unreliable makes the decision provisional too
+            doubtful = [
+                (n, r) for n, r in zip(names, results) if r.metric_value is not None and (r.status or r.reliable is False)
+            ]
+            if doubtful:
+                combined.reliable = False
+                combined.reliability_reason = "; ".join(
+                    f"signal {n}: {r.status or r.reliability_reason or 'flagged unreliable'}" for n, r in doubtful
+                )
+                if any(r.status == CONSTANT_REFERENCE for _, r in doubtful):
+                    combined.status = CONSTANT_REFERENCE
         verdict = self._persistence.update([combined])[0]
         settings = {
             "preset": "recommended" if self.is_recommended else "custom",
