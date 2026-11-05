@@ -2,6 +2,44 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.16.0] - 2026-11-05
+
+### Added
+
+- **Model fingerprint on evidence records** (`pulsar_metrics.fingerprint`). New optional field `model_fingerprint`
+  `{"algorithm": "sha256" | "sha512", "digest": "<lowercase hex>", "source": "artifact" | "endpoint" | "declared",
+  "ref": "<optional label>"}` (`ModelFingerprint`), so that a record proves which exact model was measured rather
+  than a free `model_version` label. `fingerprint_path` hashes a saved model file (streamed, as `sha256sum`) or
+  directory (sha256 of a sorted `sha256sum`-style manifest, `directory_manifest`, every file included; links to
+  directories, broken links and special files raise), `declared_fingerprint` wraps a digest from a registry,
+  `verify_fingerprint(record, path)` checks a record against the artifact. In-memory objects are deliberately not
+  fingerprinted (pickle bytes are not stable): hash the saved file. `evidence_from_result`, `evidence_from_results`,
+  `to_evidence` and `evidence_from_analyzer` take `model_fingerprint=`, and `Analyzer` / `DataQualityAnalyzer` take it
+  at construction.
+
+### Fixed
+
+- **Fairness: suppressed group sizes could be computed by difference** (lab FA-02, major). `coverage()` published
+  `n` = rows outside the reference group and each kept group its exact `n`, so with a single suppressed cell its exact
+  size (under `min_group_size`) was the difference; in intersections, a suppressed cell was also a published margin
+  minus the other cells of that margin. `FairnessAnalyzer` and `importance_by_group` now apply complementary
+  suppression (`pulsar_metrics.fairness.disclosure`): for the whole feature and every margin of an intersection, the
+  suppressed cells are none, or at least two holding at least `min_group_size` rows; the smallest kept groups other
+  than the reference are suppressed to get there (method "suppressed: complementary suppression ..."), and
+  `coverage()` gives `n = None` when only the reference group is left. Rounding the counts was rejected: a group's
+  size can be read back from its exact rates. New `FairnessPolicy(complementary_suppression=True)`.
+
+### Compatibility
+
+- **Fewer fairness results**: a feature with a single small group now also loses the result of its smallest other
+  group (with three groups, the middle one), and intersections lose more cells. Set
+  `complementary_suppression=False` to get the 0.15 output, for a report that stays with people allowed to see the
+  data.
+- The fingerprint (algorithm and digest) is hashed into `evidence_id` **only when present**: records without it keep
+  their 0.15 id (tested against a pinned id), and the format stays `pulsar.evidence/1` (optional field, schema
+  `evidence-1.json` regenerated). Readers older than 0.16 drop the unknown field and refuse fingerprinted records
+  (id mismatch): upgrade readers first.
+
 ## [0.15.0] - 2026-11-05
 
 ### Added

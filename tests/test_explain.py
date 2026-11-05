@@ -88,8 +88,9 @@ def test_importance_by_group_flags_a_proxy_and_suppresses_small_groups():
     a = attributions(2000, REFERENCE_SCALES, seed=6)
     b = attributions(800, [1.0, 0.7, 0.5, 0.3, 1.2, 0.05], seed=7)  # region weighs much more for group B
     c = attributions(10, REFERENCE_SCALES, seed=8)
-    data = pd.concat([a, b, c], ignore_index=True)
-    groups = pd.Series(["A"] * 2000 + ["B"] * 800 + ["C"] * 10, name="language")
+    d = attributions(25, REFERENCE_SCALES, seed=9)  # two small groups: no complementary suppression of B
+    data = pd.concat([a, b, c, d], ignore_index=True)
+    groups = pd.Series(["A"] * 2000 + ["B"] * 800 + ["C"] * 10 + ["D"] * 25, name="language")
     results = importance_by_group(data, groups)
     region = [r for r in results if r.feature_name == "region" and r.group == "language=B"][0]
     assert region.drift_status is True and region.reference_group == "language=A" and region.n == 800

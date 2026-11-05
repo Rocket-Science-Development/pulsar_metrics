@@ -11,6 +11,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
+from ..fingerprint import ModelFingerprint
 from ..metrics.base import MetricResults, MetricsType
 from ..metrics.drift import (
     DriftMetric,
@@ -49,7 +50,7 @@ def _matches(column: pd.Series, expected) -> pd.Series:
 class AbstractAnalyzer(ABC):
     """AbstractAnalyzer class for for analyzers"""
 
-    def __init__(self, name: str, model_id: str, model_version: str, description: str = None):
+    def __init__(self, name: str, model_id: str, model_version: str, description: str = None, model_fingerprint=None):
         """Constructor of the AbstractAnalyzer class
 
         Parameters
@@ -62,6 +63,8 @@ class AbstractAnalyzer(ABC):
             The input value for model_version
         description : str, optional
             The input value for description for the analyzer
+        model_fingerprint : ModelFingerprint or dict, optional
+            Digest of the analysed model (pulsar_metrics.fingerprint), carried into its evidence records
         """
         self._name = name
         self._model_id = model_id
@@ -70,6 +73,8 @@ class AbstractAnalyzer(ABC):
         self._metrics_list = []
         self._missing_values: dict = {}  # column -> sentinel values turned into NaN before the analysis
         self._metadata = {"name": name, "description": description, "model_id": model_id, "model_version": model_version}
+        if model_fingerprint is not None:
+            self._metadata["model_fingerprint"] = ModelFingerprint.model_validate(model_fingerprint)
         self._window_info: dict = {}  # rows and period of the last run's windows (pulsar_metrics.evidence)
         self._results = None
 
@@ -116,7 +121,7 @@ class AbstractAnalyzer(ABC):
 
 
 class Analyzer(AbstractAnalyzer):
-    def __init__(self, name: str, model_id: str, model_version: str, description: str = None, **kwargs):
+    def __init__(self, name: str, model_id: str, model_version: str, description: str = None, model_fingerprint=None, **kwargs):
         """Constructor of the Analyzer class
 
         Parameters
@@ -129,6 +134,8 @@ class Analyzer(AbstractAnalyzer):
             The input value for model_version
         description : str, optional
             The input value for description for the analyzer
+        model_fingerprint : ModelFingerprint or dict, optional
+            Digest of the analysed model (pulsar_metrics.fingerprint), carried into its evidence records
         kwargs :
             keyworded variable length of arguments to a function
 
@@ -138,7 +145,7 @@ class Analyzer(AbstractAnalyzer):
            return type of None
         """
         # Call the constructor of the parent class
-        super().__init__(name, model_id, model_version, description)
+        super().__init__(name, model_id, model_version, description, model_fingerprint=model_fingerprint)
 
     def add_performance_metrics(self, metrics_list: list, **kwargs):
         """Method to add performance metrics list to the analyzer

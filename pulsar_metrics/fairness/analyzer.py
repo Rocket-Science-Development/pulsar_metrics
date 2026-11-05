@@ -11,6 +11,7 @@ import pandas as pd
 from ..exceptions import CustomExceptionPulsarMetric as error_msg
 from ..metrics.base import MetricResults
 from .criteria import CRITERIA, DEFAULT_CRITERIA, EQUALIZED_ODDS, equivalence_verdict
+from .disclosure import complementary_suppression
 from .planning import rate_interval, required_group_size
 
 # criteria whose group statistic is a rate of binary decisions: exact binomial bootstrap and score intervals apply
@@ -43,6 +44,13 @@ class FairnessPolicy:
         Acceptable zone [low, high] per criterion, overriding the defaults (e.g. {"disparate_impact_ratio": (0.8, 1.25)})
     min_group_size : int, optional
         Groups with fewer rows are suppressed: no value, no count is published (default 30)
+    complementary_suppression : bool, optional
+        When the suppressed cells of a feature, or of a margin of an intersection (e.g. the cells of sex=F), are a
+        single cell or hold fewer than `min_group_size` rows together, the smallest kept groups other than the
+        reference are suppressed too, so that no suppressed size can be computed by difference from the published
+        counts (default True; lab FA-02, see `pulsar_metrics.fairness.disclosure`). With 3 groups and one small, the
+        middle group loses its result. Turn it off only for a report that never leaves the people allowed to see the
+        data
     confidence : float, optional
         Confidence level of the intervals (default 0.95)
     n_bootstrap : int, optional
@@ -71,6 +79,7 @@ class FairnessPolicy:
     criteria: Sequence[str] = DEFAULT_CRITERIA
     acceptable: dict = field(default_factory=dict)
     min_group_size: int = 30
+    complementary_suppression: bool = True
     confidence: float = 0.95
     n_bootstrap: int = 500
     simultaneous: bool = True
@@ -453,6 +462,13 @@ class FairnessAnalyzer:
         suppressed = sizes[sizes < self.policy.min_group_size].index.tolist()
 
         reference = self._reference(feature, attrs, mass, kept, labels)
+        secondary, safe = [], True
+        if self.policy.complementary_suppression:
+            secondary, safe = complementary_suppression(
+                sizes, kept, suppressed, reference, self.policy.min_group_size, depth=len(attrs)
+            )
+        kept = [k for k in kept if k not in secondary]
+        suppressed = suppressed + secondary
         notes = self._notes(attrs)
         status_label = "ecological" if self._ecological else None
         columns = self._arrays(data)
@@ -525,7 +541,12 @@ class FairnessAnalyzer:
                         group=labels[k],
                         reference_group=labels[reference],
                         suppressed=True,
-                        method=f"suppressed: fewer than {self.policy.min_group_size} {unit}",
+                        method=(
+                            f"suppressed: complementary suppression, so that a smaller suppressed group of {feature} "
+                            "cannot be computed by difference"
+                            if k in secondary
+                            else f"suppressed: fewer than {self.policy.min_group_size} {unit}"
+                        ),
                         test_type="fixed",
                         status=status_label,
                     )
@@ -538,7 +559,7 @@ class FairnessAnalyzer:
                     feature_name=feature,
                     reference_group=labels[reference],
                     metric_value=share,
-                    n=int(sizes.sum() - sizes[reference]),
+                    n=int(sizes.sum() - sizes[reference]) if safe else None,
                     threshold=self.policy.max_no_verdict_share,
                     method=f"{name}: share of the {'weight' if self._w is not None else 'rows'} outside the reference group "
                     "in suppressed or inconclusive "
