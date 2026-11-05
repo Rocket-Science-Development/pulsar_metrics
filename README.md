@@ -490,7 +490,7 @@ threshold of the policy in `threshold` and `drift_status=True` when the share is
 |---|---|---|---|
 | `schema` | column | 1 when the column is missing from the window (`status="missing_column"`), new (`"new_column"`, unless `allow_new_columns`) or of another kind (`"type_change"`), else 0 | 0 |
 | `null_share` | column | Share of missing values | reference share + 0.05 |
-| `out_of_range_share` | numeric column | Share of the values outside the reference min-max (or `range_quantiles`); missing values set aside | 0.01 (+ the reference share outside the quantiles) |
+| `out_of_range_share` | numeric column | Share of the values outside the reference min-max (or `range_quantiles`); missing values set aside; `inf` / `-inf` are in range only when the reference held the same infinity | 0.01 (+ the reference share outside the quantiles) |
 | `unseen_category_share` | categorical or boolean column | Share of the values whose level is not in the reference; missing values set aside | 0.01 |
 | `duplicate_share` | `None` (frame) | Share of rows repeating an earlier row | reference share + 0.01 |
 | `rule_violation_share` | rule id | Share of the rows (both sides present) breaking the rule | reference share + 0.01 |
@@ -514,9 +514,11 @@ columns:
   station_id: {unseen_category_share: null, schema: false}
 ```
 
-Unknown keys and shares outside [0, 1] are refused. **A check that cannot run** has no value and no verdict: `status`
-says why and `reliable` is `False`: `empty_window` (an empty window is recorded, not refused; the schema check still
-runs), `missing_in_window`, `not_in_reference` (a new column), `type_mismatch` (range of a column no longer numeric),
+Unknown keys, shares outside [0, 1] and `range_quantiles` levels the profile does not keep (`QUANTILES`) are
+refused. Column names are read as text (a column `0` is profiled as `"0"`). **A check that cannot run** has no value
+and no verdict: `status` says why and `reliable` is `False`: `empty_window` (an empty window is recorded, not refused;
+every check, the schema check included, is then not evaluable: an empty query result has no columns either),
+`missing_in_window`, `not_in_reference` (a new column), `type_mismatch` (range of a column no longer numeric),
 `no_reference_values`, `no_reference_domain` (more levels than `max_categories`), `no_values_in_window`.
 `pulsar_metrics.quality.check(profile, current, policy)` runs the checks without an analyzer.
 
