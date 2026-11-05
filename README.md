@@ -486,7 +486,8 @@ Reliability codes (`REASON_CODES`, `NOTE_CODES` in the module):
 - `reasons`, `reliable` is then `false`: `computation_error`, `no_ground_truth`, `insufficient_labels`,
   `few_labelled_rows`, `constant_reference`, `saturated_null`, `degenerate_null`, `window_size_mismatch`,
   `short_reference`, `suppressed_group`, `rule_not_evaluable`, `instrument_unusable`, `flagged_unreliable`,
-  `non_finite_value` (NaN or infinite value, exported as `null`), `unstable_reference` (explainability);
+  `non_finite_value` (NaN or infinite value, exported as `null`), `unstable_reference` (explainability),
+  `few_repeats` and `few_questions` (consistency);
 - `notes`: `nominal_threshold`, `no_threshold`, `sparse_cells`, `missing_values_set_aside`, `partial_label_coverage`,
   `drift_not_confirmed`, `ecological_inference`, `small_canary`.
 
@@ -865,7 +866,7 @@ is given.
 
 ### Text drift, model equality and agent compliance
 
-`pulsar_metrics.genai` adds three tests for LLM applications and agents:
+`pulsar_metrics.genai` adds these tests for LLM applications and agents:
 
 | Function | Question | Test |
 |---|---|---|
@@ -874,6 +875,7 @@ is given.
 | `novelty_test` (`embedding_drift(test="novelty")`) | Has a **small share of texts unlike the reference** appeared (another language, spam, an injection campaign)? | Distance of each text to its k nearest reference texts, threshold from a held-out part of the reference; share of novel texts against the expected share, permutation p-value; indices of the novel texts returned |
 | `detection_power` | Which change can a test see at a given window size? | Simulation on your own embeddings: detection rate by share of changed texts and window size, with the A/A false alarm rate |
 | `model_equality` / `model_equality_test` | Is the endpoint still serving the **same model** (not a quantized version, another model, a new system prompt)? | Answers to a fixed canary set, sampled several times; MMD with a Hamming kernel within prompts (Gao et al., ICLR 2025); permutation p-value within prompts. `model_equality_power` measures the detection rate by canary size on a pilot; `min_answers` turns a non-significant result on a small canary into "inconclusive" |
+| `consistency` / `consistency_drift` | Does the system give the **same answer to the same question** asked several times (and in other words)? | Per-question pairwise agreement from `ConsistencyProbe` (pulsar-data-collection); window mean and share of questions in full agreement with bootstrap intervals over the questions; one-sided permutation test of a drop against a reference (paired on shared questions) |
 | `ComplianceMonitor` | Does every run respect the **behavioural rules** of the agent? | Rules in linear temporal logic on finite traces (LTLf) or Declare templates (`precedence`, `response`, `absence`, `allowed_tools`...), versioned in YAML with a `severity` (info, minor, major, critical); per run, the violated rules (`violations`), the alert of the critical ones (`alerts`) and the fields to store with the run (`run_record`); per rule, the compliance rate with a Wilson interval, in absolute terms or against a reference period |
 
 ```python
@@ -963,6 +965,32 @@ was judged on (`n`, the method says how many were not) and gives `status="not_ev
 `drift_status` None to a rule judged on no run. On the synthetic replica of LA-02 (40 retail runs, 36 with a write),
 the confirmation rule over tool names flags all 36; with `@user_confirmation` on the rich traces it flags the 23 real
 violations, and on the name-only traces it is not evaluable on all 40.
+
+#### Consistency of repeated answers
+
+The input is the `questions` frame of `pulsar_data_collection.genai.ConsistencyProbe` (one row per question:
+`agreement`, `full_agreement`, `n_answers`), or a mapping `{question_id: [normalized answers]}` (`question_agreement`).
+
+```python
+from pulsar_metrics.evidence import to_evidence
+from pulsar_metrics.genai import consistency, consistency_drift
+
+window = consistency(current_questions, model="llama3.2:3b", threshold=0.8)  # [agreement, full agreement share]
+drop = consistency_drift(reference_questions, current_questions, model="llama3.2:3b", alpha=0.05)
+records = to_evidence(window + [drop], "REG-0003", window={"id": "2026-W45"}, reference={"id": "2026-W40"})
+```
+
+| Result | metric_type / name | Value | Verdict (evidence) |
+|---|---|---|---|
+| mean agreement | `custom` / `consistency_agreement` | mean over the questions of the mean pair score, percentile bootstrap interval over the questions | with `threshold`: alert below it (`direction` lower, `decision_basis` value); else no verdict |
+| full agreement | `custom` / `consistency_full_agreement` | share of questions whose answers all agree, idem | `full_agreement_threshold`, idem |
+| drop | `drift` / `consistency_drift` (`statistic="full_agreement"`: `consistency_full_agreement_drift`) | current - reference (negative: less consistent), bootstrap interval | one-sided permutation p-value below `alpha` (`direction` lower, `decision_basis` p_value); paired sign flips on shared questions, else permutation of the questions |
+
+All are exported in the `genai` family. Questions with fewer than 2 answers are set aside (counted in `method`). A
+median below `min_repeats` answers per question (default 3) gives `status="few_repeats"`, fewer than
+`min_questions` questions (default 10) `"few_questions"`: `reliable=False`, and the evidence reason code of the same
+name; a window with no usable question is `not_evaluable`. The questions are the units of the bootstrap and of the
+permutations: the answers to one question are not independent.
 
 #### Known limits (night lab, TX-02, IM-02, LM-01, LI-03, LS-01 and LR-03)
 
