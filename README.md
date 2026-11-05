@@ -186,6 +186,7 @@ a valid false alarm rate, it only loses power, and grouping changes every catego
 | `CvM` | [Cramér-von Mises](https://en.wikipedia.org/wiki/Cram%C3%A9r%E2%80%93von_Mises_criterion) | Any change of distribution |
 | `chi2` | [Chi-squared test of homogeneity](https://en.wikipedia.org/wiki/Chi-squared_test) | Change of the frequencies of a **categorical** feature (2 x k contingency table, `scipy.stats.chi2_contingency`); samples may have different sizes; numeric features are binned |
 | `missing_rate` | [Fisher exact test](https://en.wikipedia.org/wiki/Fisher%27s_exact_test) on the 2 x 2 table missing / present | Change of the **share of missing values** (NaN and declared sentinels), e.g. a sensor that fails more often |
+| `rate_increase` | One-sided [Fisher exact test](https://en.wikipedia.org/wiki/Fisher%27s_exact_test) on a 0 / 1 indicator | **Rise** of the share of positives of a per-run indicator (e.g. `det_abstention`, `det_unsupported_answer` of a RAG agent); exact on small windows and with a zero base rate |
 
 The statistical tests other than `chi2` apply to numeric features. For a categorical feature use `chi2`, `psi` or `kl`.
 
@@ -568,6 +569,30 @@ wasserstein tool_error_rate    0.006633      True
 The tool distribution (`first_tool`) is unchanged, while steps, latency and tool errors drift: the signature of a
 degraded tool rather than of a change in the requests. Feed each window's results to `DriftPersistence` to raise an
 alert only when the drift lasts.
+
+### Abstentions and answers without support (RAG agents)
+
+pulsar-data-collection records two 0 / 1 indicators per run of a retrieval agent (`genai.abstention`):
+`det_abstention` (the answer says the information is not found) and `det_unsupported_answer` (the agent answered
+although the retrieval was empty or irrelevant, or the answer is not supported by the passages). Their rates per
+window are tested with `rate_increase`, a one-sided Fisher exact test (alert only when the window rate is higher):
+
+```python
+from pulsar_metrics.evidence import to_evidence
+from pulsar_metrics.metrics.drift import DriftTestMetric
+
+result = DriftTestMetric("rate_increase", "det_unsupported_answer").evaluate(window_runs, reference_runs)
+print(result.metric_value, result.drift_status, result.method)
+# 0.00051 True one-sided Fisher exact test, window rate higher: window 3/8 = 0.375 vs reference 0/80 = 0
+record = to_evidence([result], "register-assistant", window={"id": "2026-11-04T10"})[0]
+print(record.details)  # current_count, current_n, current_rate, reference_count, reference_n, reference_rate
+```
+
+Why not the generic tests on these fields: a reference without any positive (a zero base rate, the usual case of
+unsupported answers) makes every generic test mark the feature `constant_reference` (`reliable=False` in the
+evidence), and the rank and chi2 tests are asymptotic: on the window above, `manwu` (one-sided) gives 1.7e-08 where
+the exact p-value is 5.1e-04. `rate_increase` takes 0 / 1 or boolean values only (anything else raises), and
+`AACalibrator` does not flag its constant references either.
 
 ## Group fairness
 
