@@ -236,6 +236,59 @@ def chi2_test(
     return chi2_contingency(counts.T.to_numpy(), **kwargs)
 
 
+def rate_increase_test(new, reference):
+    """One-sided Fisher exact test: is the share of positive values (1 or True) higher in the new sample?
+
+    For per-run indicators recorded as 0 / 1, e.g. the abstentions or the answers without support of a RAG agent
+    (`det_abstention`, `det_unsupported_answer` of pulsar-data-collection): the window is compared with the reference,
+    and only a rise alerts. The test is exact at any sample size, including windows of a few runs and a reference
+    without any positive (a zero base rate), where a rank or chi2 test on 0 / 1 values is not.
+
+    Parameters
+    ----------
+    new : pd.Series or array
+        Indicators of the new population (0 / 1 or booleans; missing values set aside beforehand)
+    reference : pd.Series or array
+        Indicators of the reference population
+
+    Returns
+    -------
+    SimpleNamespace
+        statistic (rate of the new sample minus rate of the reference), pvalue (1.0 when no value is positive),
+        current_count, current_n, reference_count, reference_n
+
+    Raises
+    ------
+    ValueError
+        when a value is neither 0 nor 1, or a sample is empty
+    """
+
+    def counts(x):
+        values = np.asarray(x, dtype=float)
+        if values.size == 0:
+            raise ValueError("rate_increase needs at least one value in each sample")
+        if not np.isin(values, (0.0, 1.0)).all():
+            raise ValueError("rate_increase tests indicators: every value must be 0 or 1 (or a boolean)")
+        return int(values.sum()), int(values.size)
+
+    new_count, new_n = counts(new)
+    ref_count, ref_n = counts(reference)
+    statistic = new_count / new_n - ref_count / ref_n
+    if new_count + ref_count == 0:
+        pvalue = 1.0
+    else:
+        table = [[new_count, new_n - new_count], [ref_count, ref_n - ref_count]]
+        pvalue = float(fisher_exact(table, alternative="greater").pvalue)
+    return SimpleNamespace(
+        statistic=statistic,
+        pvalue=pvalue,
+        current_count=new_count,
+        current_n=new_n,
+        reference_count=ref_count,
+        reference_n=ref_n,
+    )
+
+
 def missing_rate_test(new, reference):
     """Fisher exact test of the share of missing values (NaN) between two samples
 

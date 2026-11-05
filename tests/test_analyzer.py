@@ -50,7 +50,7 @@ def test_metric_enums_are_populated():
     from pulsar_metrics.metrics.enums import DriftMetricsFuncs, DriftTestMetricsFuncs, PerformanceMetricsFuncs
 
     assert len(DriftMetricsFuncs) == 4
-    assert len(DriftTestMetricsFuncs) == 8  # with missing_rate
+    assert len(DriftTestMetricsFuncs) == 9  # with missing_rate and rate_increase
     assert len(PerformanceMetricsFuncs) == 12
 
 

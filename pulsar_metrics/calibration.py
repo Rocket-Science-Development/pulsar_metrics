@@ -39,6 +39,7 @@ from scipy.stats import binom
 from .exceptions import CustomExceptionPulsarMetric as error_msg
 from .metrics.drift import (
     MISSINGNESS_METRICS,
+    RATE_METRICS,
     DriftMetric,
     DriftTestMetric,
     is_constant,
@@ -521,7 +522,7 @@ class AACalibrator:
                 value=metric._name, message=f"the statistic could not be computed on {n_failed} of {len(values)} A/A draws"
             )
         status = STATUS_OK
-        if metric._name not in MISSINGNESS_METRICS and is_constant(column):
+        if metric._name not in MISSINGNESS_METRICS + RATE_METRICS and is_constant(column):
             status = STATUS_CONSTANT
             warnings.warn(
                 f"{metric._feature_name} is constant in the reference (imputed, or not yet in use): the calibrated "
