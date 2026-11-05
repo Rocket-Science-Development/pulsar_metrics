@@ -2,6 +2,25 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.0] - 2026-11-05
+
+### Added
+
+- **Recommended drift trigger of a RAG agent** (`pulsar_metrics.genai.RAGDriftTrigger`). Three per-run signals of
+  the `agent_run` records, each tested one-sided against the reference: faithfulness (`det_faithfulness`,
+  Mann-Whitney, window lower), empty retrievals (`det_retrieval_empty`, `rate_increase`) and the retriever's score of
+  the top passage (`det_retrieval_top`, Mann-Whitney, window lower); one decision per window, `min(1, 3 x smallest
+  p-value) < 0.05` (Bonferroni), confirmed by `DriftPersistence(windows=2)`. The defaults (`RECOMMENDED_RAG_TRIGGER`,
+  `RAG_TRIGGER_SIGNALS`) are the configuration of the LR-03 replay of pulsar_demo, where the demo agent showed about
+  0.08 false alarms per week [0.02; 0.47] at one window of 100 runs per hour and a median delay of 2 windows at 40 %
+  corpus loss; alpha, persistence, signals (`TriggerSignal`) and column names can be overridden. `evaluate()`
+  returns a `TriggerDecision` (per-signal results, adjusted p-value, raw and confirmed verdicts, `to_pandas()`,
+  `to_evidence()`). A signal whose column is absent or too sparse is not evaluable, not an error: the evidence
+  reason codes `missing_signal`, `few_values` and `no_signal`, and the notes `partial_signals` and `small_window`
+  (fewer than 20 runs), are new (additive, the format stays `pulsar.evidence/1`). The combined decision is exported
+  as `rag_drift_trigger` in the `genai` family. Abstention and unsupported-answer rates stay governance indicators
+  outside the trigger. No existing default changes.
+
 ## [0.14.0] - 2026-11-05
 
 ### Added

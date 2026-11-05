@@ -76,6 +76,7 @@ GENAI_METRICS = (
     "model_equality",
     "consistency_drift",
     "consistency_full_agreement_drift",
+    "rag_drift_trigger",  # pulsar_metrics.genai.RAGDriftTrigger: the combined decision
 )
 # window metrics of pulsar_metrics.genai.consistency (metric_type custom): value with an interval, minimum acceptable
 CONSISTENCY_METRICS = ("consistency_agreement", "consistency_full_agreement")
@@ -83,6 +84,12 @@ CONSISTENCY_STATUSES = ("few_repeats", "few_questions")  # pulsar_metrics.genai.
 SMALL_CANARY_ANSWERS = 480  # pulsar_metrics.genai.RECOMMENDED_CANARY["answers"]
 POINT_ESTIMATE_DECISIONS = ("unusable_rate",)  # fairness results decided on the value, not on their interval
 UNSTABLE_REFERENCE = "unstable_reference"  # pulsar_metrics.explain: the ranking is not stable on the reference
+# pulsar_metrics.genai.RAGDriftTrigger: status of a signal (or of the whole trigger) that cannot be evaluated
+TRIGGER_NOT_EVALUABLE = {
+    "missing_signal": "drift trigger: the column of a signal is absent from the window or the reference",
+    "few_values": "drift trigger: a signal has fewer non-missing values than its min_values in the window or the reference",
+    "no_signal": "drift trigger: none of its signals could be evaluated, no decision",
+}
 _NULL_STATUSES = {"saturated": "saturated_null", "degenerate_null": "degenerate_null", CONSTANT_REFERENCE: CONSTANT_REFERENCE}
 
 # Codes of Reliability.reasons: each one makes `reliable` False
@@ -106,6 +113,7 @@ REASON_CODES = {
     **DATA_QUALITY_NOT_EVALUABLE,  # pulsar_metrics.quality: empty_window, not_in_reference, missing_in_window, ...
     "few_repeats": "consistency: too few answers per question (median below min_repeats, default 3)",
     "few_questions": "consistency: too few questions in a window (below min_questions, default 10)",
+    **TRIGGER_NOT_EVALUABLE,
 }
 # Codes of Reliability.notes: they lower the confidence without making `reliable` False
 NOTE_CODES = {
@@ -117,6 +125,9 @@ NOTE_CODES = {
     "drift_not_confirmed": "alert in this window, not yet confirmed over consecutive windows (DriftPersistence)",
     "ecological_inference": "fairness: groups from a composition table, not from individual attributes",
     "small_canary": f"model equality: fewer than {SMALL_CANARY_ANSWERS} answers, a change is usually missed",
+    "partial_signals": "drift trigger: some signals could not be evaluated; the decision rests on the others, with the "
+    "Bonferroni factor of all the signals (conservative)",
+    "small_window": "drift trigger: fewer than 20 runs in the window, a change affecting a few runs is usually missed",
 }
 
 
@@ -551,6 +562,8 @@ def _status(result: MetricResults) -> str:
         return "not_evaluable"
     if result.suppressed or result.status == "not_evaluable":
         return "not_evaluable"
+    if result.status in TRIGGER_NOT_EVALUABLE and result.metric_value is None:
+        return "not_evaluable"  # RAGDriftTrigger: a signal (or every signal) without data
     if result.error is not None and result.metric_value is None and result.status in CONSISTENCY_STATUSES:
         return "not_evaluable"  # consistency: no question with enough answers
     if result.error is not None and result.metric_value is None:
@@ -653,6 +666,8 @@ def _reliability(
     if result.status == UNSTABLE_REFERENCE:
         add(reasons, UNSTABLE_REFERENCE)
     if _data_quality_not_evaluable(result) or result.status in CONSISTENCY_STATUSES:
+        add(reasons, result.status)
+    if result.status in TRIGGER_NOT_EVALUABLE and result.metric_value is None:
         add(reasons, result.status)
     if non_finite and status in ("ok", "alert", "no_verdict"):
         add(reasons, "non_finite_value")
