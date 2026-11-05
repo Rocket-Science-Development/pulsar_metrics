@@ -19,9 +19,11 @@ from .utils import get_population_counts, low_expected_share
 NAN_POLICIES = ("omit", "propagate", "raise")
 # Metrics about the missing values themselves: NaN are kept, and a reference without variation is normal
 MISSINGNESS_METRICS = ("missing_rate",)
+# Tests of the rate of a 0 / 1 indicator: a reference without any positive (zero base rate) is normal, not degenerate
+RATE_METRICS = ("rate_increase",)
 CONSTANT_REFERENCE = "constant_reference"
 # Functions that take numpy arrays as well as pandas series (scipy statistics)
-ARRAY_FUNCTIONS = ("wasserstein", "ttest", "manwu", "levene", "bftest", "ks_2samp", "CvM")
+ARRAY_FUNCTIONS = ("wasserstein", "ttest", "manwu", "levene", "bftest", "ks_2samp", "CvM", "rate_increase")
 # Metrics computed on a table of counts per level or bin: they accept level grouping and report low_expected_share
 COUNT_METRICS = ("chi2", "psi", "kl")
 SPARSE_SHARE = 0.2  # above this share of cells with expected count < 5, a warning suggests grouping the levels
@@ -190,7 +192,7 @@ class _FeatureDriftMetric(AbstractMetrics):
             n_rows = len(new)  # rows of the window, missing values included, as in the A/A windows
             new, ref, info = self._clean(new, ref, nan_policy)
             value = self._raw_value(self._funcs[self._name].value(new, ref, **{**self._grouping, **kwargs}))
-            constant_reference = self._name not in MISSINGNESS_METRICS and is_constant(ref)
+            constant_reference = self._name not in MISSINGNESS_METRICS + RATE_METRICS and is_constant(ref)
         except Exception as e:
             raise MetricEvaluationError(
                 value=self._name, message=f"Cannot evaluate {self._kind} {self._name} on {self._feature_name}: {e}"
@@ -339,7 +341,9 @@ class DriftTestMetric(_FeatureDriftMetric):
 
     `metric_value` is the p-value. Same `missing_values` and `nan_policy` parameters as DriftMetric, and the same
     `min_expected` / `max_levels` level grouping for chi2. The `missing_rate` test compares the share of missing values
-    itself: its NaN are never set aside.
+    itself: its NaN are never set aside. The `rate_increase` test compares the share of positives of a 0 / 1 indicator,
+    one-sided (alert when the window rate is higher); its `method` gives both rates ("window 3/8 = 0.375 vs reference
+    0/80 = 0").
     """
 
     _funcs = DriftTestMetricsFuncs
@@ -365,6 +369,7 @@ class DriftTestMetric(_FeatureDriftMetric):
         )
 
     def _raw_value(self, result):
+        self._raw = result  # rate_increase: the counts behind the p-value, for `method`
         return result.pvalue
 
     def evaluate(
@@ -402,7 +407,7 @@ class DriftTestMetric(_FeatureDriftMetric):
         MetricResults
             returns the result of the test; metric_value is the p-value
         """
-        return self._evaluate(
+        result = self._evaluate(
             current,
             reference,
             lambda pvalue: pvalue < alpha if isinstance(alpha, (int, float)) else None,
@@ -413,6 +418,19 @@ class DriftTestMetric(_FeatureDriftMetric):
             calibration_status=calibration_status,
             window_size=window_size,
         )
+        if self._name in RATE_METRICS:
+            result.method = rate_method(self._raw)
+        return result
+
+
+def rate_method(raw) -> str:
+    """`method` of a rate_increase result: the two rates behind the p-value (read back by pulsar_metrics.evidence)"""
+    current = raw.current_count / raw.current_n
+    reference = raw.reference_count / raw.reference_n
+    return (
+        f"one-sided Fisher exact test, window rate higher: window {raw.current_count}/{raw.current_n} = {current:.4g} "
+        f"vs reference {raw.reference_count}/{raw.reference_n} = {reference:.4g}"
+    )
 
 
 def CustomDriftMetric(func):

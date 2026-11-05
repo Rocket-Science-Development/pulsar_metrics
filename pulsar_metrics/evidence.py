@@ -40,7 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .metrics import constant
 from .metrics.base import MetricResults
-from .metrics.drift import CONSTANT_REFERENCE, SPARSE_SHARE, WINDOW_RATIO
+from .metrics.drift import CONSTANT_REFERENCE, RATE_METRICS, SPARSE_SHARE, WINDOW_RATIO
 from .metrics.enums import DriftTestMetricsFuncs
 from .metrics.performance import MIN_LABELLED
 from .quality.checks import METRIC_TYPE as DATA_QUALITY
@@ -506,6 +506,25 @@ def _alpha(method: Optional[str]) -> Optional[float]:
     return float(match.group(1)) if match else None
 
 
+_RATES = re.compile(r"window (\d+)/(\d+) = [^ ]+ vs reference (\d+)/(\d+)")
+
+
+def _rates(result: MetricResults) -> dict:
+    """rate_increase (DriftTestMetric): the counts and rates of the window and of the reference, from `method`"""
+    match = _RATES.search(result.method or "") if result.metric_name in RATE_METRICS else None
+    if match is None:
+        return {}
+    count, n, ref_count, ref_n = (int(g) for g in match.groups())
+    return {
+        "current_count": count,
+        "current_n": n,
+        "current_rate": count / n,
+        "reference_count": ref_count,
+        "reference_n": ref_n,
+        "reference_rate": ref_count / ref_n,
+    }
+
+
 def _rules_version(method: Optional[str]) -> Optional[str]:
     """ComplianceMonitor.evaluate: the rules version is in the method ("<formula> [<severity>; rules <version>]...")"""
     match = re.search(r"; rules ([^\]]+)\]", method or "")
@@ -724,7 +743,8 @@ def evidence_from_result(
     family : str, optional
         Overrides the family inferred from metric_type and metric_name
     details : dict, optional
-        Extra aggregates, merged over the ones taken from the result (conf_int, raw status). Never raw rows
+        Extra aggregates, merged over the ones taken from the result (conf_int, raw status; for rate_increase the
+        counts and rates of the window and of the reference). Never raw rows
 
     A record whose window has no start, end nor id gets an evidence_id that includes produced_at (UserWarning): pass
     window={"id": ...} (batch, run or period id) so that the same finding sent again keeps its id.
@@ -758,6 +778,7 @@ def evidence_from_result(
         extra["pulsar_status"] = result.status
     if result.test_type is not None:
         extra["test_type"] = result.test_type
+    extra.update(_rates(result))
     if family == "compliance" and _rules_version(result.method) is not None:
         extra["rules_version"] = _rules_version(result.method)
     non_finite = isinstance(result.metric_value, float) and not math.isfinite(result.metric_value)
