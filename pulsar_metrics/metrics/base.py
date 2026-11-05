@@ -71,6 +71,7 @@ class MetricResults(BaseModel):
             + DriftTestMetricsFuncs._member_names_
             + ["model_equality"]  # pulsar_metrics.genai.model_equality
             + ["embedding_mean_shift", "embedding_novelty"]  # pulsar_metrics.genai.embedding_drift
+            + ["consistency_drift", "consistency_full_agreement_drift"]  # pulsar_metrics.genai.consistency_drift
         )
         if (v not in metric_names) and (
             info.data.get("metric_type")
