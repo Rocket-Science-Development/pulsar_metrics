@@ -415,6 +415,23 @@
    "metric_value": 0.6453488372093024,
    "threshold": 0.5
   },
+  "rmse|None": {
+   "conf_int": null,
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.5196152422706632,
+   "threshold": 0.5
+  },
+  "rmse|bootstrap": {
+   "conf_int": [
+    0.47958315233127197,
+    0.5590169943749475
+   ],
+   "drift_status": true,
+   "metric_type": "performance",
+   "metric_value": 0.5196152422706632,
+   "threshold": 0.5
+  },
   "summary:P25.0|x1": {
    "conf_int": null,
    "drift_status": null,

@@ -51,7 +51,7 @@ def test_metric_enums_are_populated():
 
     assert len(DriftMetricsFuncs) == 4
     assert len(DriftTestMetricsFuncs) == 9  # with missing_rate and rate_increase
-    assert len(PerformanceMetricsFuncs) == 12
+    assert len(PerformanceMetricsFuncs) == 13  # with rmse
 
 
 # run() accepts timestamps with mixed precisions, as read back from a time series store
