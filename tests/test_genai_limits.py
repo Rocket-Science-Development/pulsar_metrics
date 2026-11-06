@@ -144,6 +144,86 @@ def test_detection_power_gives_the_minimal_detectable_change():
         detection_power(ref, pool[:10], positive, sizes=(150,), reps=1)
 
 
+class _Welch:
+    """Fast stand-in for a drift test: Welch t-test on the first coordinate"""
+
+    def __call__(self, reference, current):
+        from types import SimpleNamespace
+
+        from scipy import stats
+
+        return SimpleNamespace(p_value=float(stats.ttest_ind(reference[:, 0], current[:, 0], equal_var=False).pvalue))
+
+
+def _offset_reference(n=30, d=2):
+    """An i.i.d. N(0, 1) reference whose mean happens to sit away from 0 (as some references do, by chance)"""
+    for seed in range(1000):
+        reference = np.random.default_rng(seed).normal(size=(n, d))
+        if abs(reference[:, 0].mean()) > 0.4:
+            return reference
+    raise AssertionError("no offset reference found")
+
+
+def test_detection_power_aa_point_is_conditional_on_a_fixed_reference():
+    """IM-01: on a fixed reference the A/A point is that reference's rate; resampled, it falls back near alpha"""
+    reference = _offset_reference()
+    pool = np.random.default_rng(1).normal(size=(3000, 2))
+    changed = np.random.default_rng(2).normal(loc=1.0, size=(100, 2))
+    kwargs = dict(shares=(0.0,), sizes=(30,), test=_Welch(), alpha=0.05, reps=400, seed=3)
+    fixed = detection_power(reference, pool, changed, **kwargs)[0]
+    resampled = detection_power(reference, pool, changed, resample_reference=True, **kwargs)[0]
+    assert fixed["reference"] == "fixed" and resampled["reference"] == "resampled"
+    assert fixed["power"] > 0.15  # conditional on an unlucky reference: far above alpha, with a narrow interval
+    assert fixed["ci_low"] > 0.05
+    assert 0.02 <= resampled["power"] <= 0.09  # independent repetitions: the false alarm rate of the test
+    assert resampled["ci_low"] <= 0.05 <= resampled["ci_high"]
+
+
+def test_detection_power_resampled_reference_is_disjoint_and_reproducible():
+    reference = np.column_stack([np.arange(20.0), np.zeros(20)])
+    pool = np.column_stack([np.arange(20.0, 120.0), np.zeros(100)])
+    changed = np.column_stack([np.arange(1000.0, 1050.0), np.ones(50)])
+    seen = []
+
+    def recording_test(ref, cur):
+        from types import SimpleNamespace
+
+        seen.append((ref[:, 0].copy(), cur[:, 0].copy()))
+        return SimpleNamespace(p_value=float(cur[:, 0].sum() % 1.0))
+
+    grid = detection_power(
+        reference, pool, changed, shares=(0.0, 0.2), sizes=(10,), test=recording_test, reps=15, seed=4, resample_reference=True
+    )
+    assert len(seen) == 30
+    references = {tuple(sorted(ref)) for ref, _ in seen}
+    assert len(references) > 1  # a new reference at each repetition
+    for ref, cur in seen:
+        assert len(ref) == 20 and len(cur) == 10
+        assert not set(ref) & set(cur)  # the window never reuses a reference row
+        assert set(ref) <= set(np.arange(120.0))  # the reference holds unchanged rows only
+    seen.clear()
+    again = detection_power(
+        reference, pool, changed, shares=(0.0, 0.2), sizes=(10,), test=recording_test, reps=15, seed=4, resample_reference=True
+    )
+    assert again == grid
+
+
+def test_detection_power_default_keeps_the_given_reference():
+    reference = np.random.default_rng(0).normal(size=(20, 2))
+    pool = np.random.default_rng(1).normal(size=(200, 2))
+    changed = np.random.default_rng(2).normal(loc=1.0, size=(50, 2))
+    seen = []
+
+    def recording_test(ref, cur):
+        from types import SimpleNamespace
+
+        seen.append(ref)
+        return SimpleNamespace(p_value=0.5)
+
+    detection_power(reference, pool, changed, shares=(0.0,), sizes=(10,), test=recording_test, reps=5)
+    assert all(ref is reference for ref in seen)
+
+
 # ----------------------------------------------------------------------------------------------- model equality
 WORDS = "le programme aide au loyer exige un revenu inférieur à quarante mille dollars par année pour les demandeurs".split()
 
