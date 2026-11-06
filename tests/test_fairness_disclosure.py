@@ -142,3 +142,143 @@ def test_importance_by_group_applies_the_same_rule():
     suppressed = {r.group for r in results if r.suppressed}
     assert suppressed == {"language=C", "language=D"}
     assert {r.group for r in results if not r.suppressed} == {"language=B"}
+
+
+# ----------------------------------------------------------------------------------------------- small_groups="merge"
+def solvable(data, analyzer, attrs):
+    """Hidden quantities a reader can compute exactly from what is published (linear system over the finest cells)
+
+    Unknowns: the size of every cell of the original attributes crossed (the finest cells). Known, conservatively:
+    the total of rows, every published group size (any feature, any depth, merged labels mapped back to their
+    members) and every published coverage n (rows outside the reference group). A hidden quantity, the size of a
+    member of a merge (alone or crossed with any value of another attribute) or of a suppressed cell, is computable
+    iff its indicator row lies in the row space of the known equations. The success counts behind the published rates
+    obey the same equations (one per published group, reference rate assumed known), so the same check covers them."""
+    fine = sorted({tuple(str(v) for v in row) for row in data[attrs].itertuples(index=False)})
+    to_published = {a: {} for a in attrs}
+    for a, groups in analyzer.merged_groups.items():
+        for label, members in groups.items():
+            for m in members:
+                to_published[a][m] = label
+
+    def matches(cell, wanted):
+        return all(to_published[a].get(cell[a], cell[a]) == v for a, v in wanted.items())
+
+    def indicator(condition):
+        return np.array([1.0 if condition(dict(zip(attrs, cell))) else 0.0 for cell in fine])
+
+    def parse(label):
+        return dict(part.split("=", 1) for part in label.split("|"))
+
+    known = [np.ones(len(fine))]
+    targets = {}
+    for r in analyzer.get_result():
+        if r.group is None:
+            continue
+        row = indicator(lambda c, w=parse(r.group): matches(c, w))
+        if r.suppressed:
+            targets[f"suppressed {r.group}"] = row
+        elif r.n is not None:
+            known.append(row)
+    for r in analyzer.coverage():
+        if r.n is not None:
+            known.append(indicator(lambda c, w=parse(r.reference_group): not matches(c, w)))
+    for a, groups in analyzer.merged_groups.items():
+        for members in groups.values():
+            for m in members:
+                targets[f"member {a}={m}"] = indicator(lambda c, a=a, m=m: c[a] == m)
+                for b in attrs:
+                    for w in sorted(data[b].astype(str).unique()) if b != a else []:
+                        targets[f"member {a}={m}|{b}={w}"] = indicator(lambda c, a=a, m=m, b=b, w=w: c[a] == m and c[b] == w)
+    A = np.vstack(known)
+    rank = np.linalg.matrix_rank(A)
+    return [name for name, t in targets.items() if t.any() and np.linalg.matrix_rank(np.vstack([A, t])) == rank]
+
+
+GENDER = {"Female": 620, "Male": 410, "Unknown/Invalid": 7}
+MERGED = "Male+Unknown/Invalid"
+
+
+def gender_frame(seed=0, with_age=False):
+    rng = np.random.default_rng(seed)
+    data = pd.DataFrame({"sex": np.concatenate([[g] * n for g, n in GENDER.items()])})
+    if with_age:
+        data["age"] = rng.choice(["[0-40)", "[40-70)", "[70+)"], len(data), p=[0.3, 0.4, 0.3])
+    data["y_pred"] = (rng.random(len(data)) < 0.4).astype(int)
+    return data
+
+
+def test_merge_publishes_a_result_where_suppression_publishes_none():
+    data = gender_frame()
+    suppress = FairnessAnalyzer(["sex"], FairnessPolicy(**POLICY))
+    suppress.run(data)
+    assert [r for r in suppress.get_result() if not r.suppressed] == []  # Male goes with Unknown/Invalid: nothing left
+    merge = FairnessAnalyzer(["sex"], FairnessPolicy(small_groups="merge", **POLICY))
+    merge.run(data)
+    groups, coverage = published(merge)
+    assert groups["sex"] == {f"sex={MERGED}": 417}
+    assert merge.merged_groups == {"sex": {MERGED: ["Male", "Unknown/Invalid"]}}
+    (result,) = merge.get_result()
+    assert result.reference_group == "sex=Female" and result.metric_value is not None
+    assert f"'{MERGED}' merges 'Male' + 'Unknown/Invalid'" in result.method
+    expected = data.loc[data["sex"] != "Female", "y_pred"].mean() - data.loc[data["sex"] == "Female", "y_pred"].mean()
+    assert result.metric_value == pytest.approx(expected)
+    assert coverage["sex"] == 417
+    assert solvable(data, merge, ["sex"]) == []  # 0 solvable equation
+    assert solvable(data, suppress, ["sex"]) == []
+
+
+def test_merge_is_the_same_in_every_intersection_and_discloses_nothing():
+    data = gender_frame(seed=1, with_age=True)
+    analyzer = FairnessAnalyzer(["sex", "age"], FairnessPolicy(small_groups="merge", **POLICY), intersections=True)
+    analyzer.run(data)
+    groups, _ = published(analyzer)
+    sex_values = {part for feature in groups.values() for g in feature for part in g.split("|") if part.startswith("sex=")}
+    assert sex_values <= {f"sex={MERGED}", "sex=Female"}  # the members of the merge are never published apart
+    assert any(g.startswith(f"sex={MERGED}|age=") and n for g, n in groups["sex|age"].items())
+    every = analyzer.get_result()
+    assert all("merges 'Male' + 'Unknown/Invalid'" in r.method for r in every if r.feature_name.startswith("sex"))
+    assert not any("merges" in r.method for r in every if r.feature_name == "age")
+    assert solvable(data, analyzer, ["sex", "age"]) == []
+    recoded = data.assign(sex=data["sex"].replace({"Male": MERGED, "Unknown/Invalid": MERGED}))
+    assert_not_recoverable(recoded, analyzer, ["sex", "age"])
+
+
+def test_the_verifier_finds_what_suppression_without_complement_discloses():
+    data = frame({"A": 600, "B": 300, "C": 200, "D": 12})
+    analyzer = FairnessAnalyzer(["sex"], FairnessPolicy(complementary_suppression=False, **POLICY))
+    analyzer.run(data)
+    assert solvable(data, analyzer, ["sex"]) == ["suppressed sex=D"]
+
+
+def test_merge_never_absorbs_the_reference():
+    data = frame({"A": 600, "B": 12})
+    analyzer = FairnessAnalyzer(["sex"], FairnessPolicy(small_groups="merge", **POLICY))
+    analyzer.run(data)
+    assert analyzer.merged_groups == {}
+    assert [r.suppressed for r in analyzer.get_result()] == [True]
+    assert analyzer.coverage()[0].n is None
+
+
+def test_merge_chains_small_groups_until_the_size_is_reached():
+    # C and D together stay under 30: the merge takes the next smallest non-reference group (B), never A
+    data = frame({"A": 500, "B": 480, "C": 10, "D": 8})
+    analyzer = FairnessAnalyzer(["sex"], FairnessPolicy(small_groups="merge", **POLICY))
+    analyzer.run(data)
+    assert analyzer.merged_groups == {"sex": {"B+C+D": ["B", "C", "D"]}}
+    (result,) = analyzer.get_result()
+    assert result.group == "sex=B+C+D" and result.reference_group == "sex=A" and result.n == 498
+    assert solvable(data, analyzer, ["sex"]) == []
+
+
+def test_merge_keeps_the_reference_chosen_before_merging():
+    data = frame({"A": 500, "B": 495, "C": 12})
+    analyzer = FairnessAnalyzer(["sex"], FairnessPolicy(small_groups="merge", **POLICY))
+    analyzer.run(data)
+    (result,) = analyzer.get_result()
+    assert result.reference_group == "sex=A" and result.group == "sex=B+C"  # B+C (507) is larger, A stays the reference
+
+
+def test_small_groups_is_validated():
+    with pytest.raises(Exception, match="small_groups"):
+        FairnessPolicy(small_groups="round")

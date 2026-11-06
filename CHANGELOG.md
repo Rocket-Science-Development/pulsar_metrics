@@ -2,6 +2,57 @@
 
 All notable changes to pulsar-metrics. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] - 2026-11-05
+
+### Added
+
+- **`rmse` performance metric** (lab TR-01): root mean squared error, in the unit of the target, registered with the
+  other regression metrics (`PerformanceMetric("rmse")`, `Analyzer.add_performance_metrics`); its threshold is a
+  maximum, exported with direction `upper`. A threshold stated as an RMSE (0.60) no longer has to be squared into an
+  `mse` (0.36).
+- **`detection_power(..., resample_reference=False)`** (lab IM-01). With `True`, each repetition draws a new reference
+  of `len(reference)` rows from `reference` and `pool` pooled, and the unchanged part of the window from the rows left
+  (disjoint, reproducible with `seed`): the rates, the A/A point included, are those of the test for a reference like
+  this one. On i.i.d. data the A/A rate falls back near alpha (test: 0.045 against 0.415 on an unlucky fixed
+  reference). Every row now says `"reference": "fixed"` or `"resampled"`.
+- **Merge instead of suppress** (`FairnessPolicy(small_groups="merge")`, default `"suppress"`). Each group of an
+  attribute under `min_group_size` is merged, before any computation, with the smallest other group that is not the
+  reference (`sex=Male+Unknown/Invalid`), repeatedly until every non-reference group reaches the size or one is
+  left. Merged once per attribute on the whole data, so the attribute and all its intersections use the same groups
+  and the members of a merge are never published apart; complementary suppression applies to what is left; the
+  reference is never absorbed and stays the one chosen before merging. `method` names the merges,
+  `FairnessAnalyzer.merged_groups` lists them. On a 3-level gender with a tiny Unknown/Invalid level, `"suppress"`
+  publishes no result and `"merge"` publishes Male+Unknown/Invalid against Female; a linear-system check of
+  everything published (sizes and coverage at every depth) finds no computable size of a member or of a suppressed
+  cell.
+- **`FairnessAnalyzer(id_column=...)`**: pseudonymous id of the person a row belongs to, used only to check the design.
+  When it repeats (stays of one patient) and `cluster` is not set, a `UserWarning` is raised and `method` says that the
+  rows of one id are treated as independent. The id is never guessed from column names.
+
+### Fixed
+
+- **Fairness with `cluster=`: small groups lost their score intervals** (lab FA-02). Rate criteria of groups under
+  `small_group_size` switched from Wilson / Newcombe / MOVER to the cluster bootstrap, less prudent with few units (the
+  age group [0-10) went from "inconclusive" to "established"). They now keep score intervals on effective counts:
+  rows and positives divided by the design effect of the group, max(own Rao-Scott design effect, Kish
+  `1 + (m - 1) rho` with `rho` the intra-unit correlation over the groups of the feature), bounded to `[1, m]` (`m`:
+  size-weighted mean rows per unit). A group whose units all have one row keeps the interval of independent rows
+  exactly; the interval widens with the intra-unit correlation (tested). `method` gives the design effects and `rho`.
+- **`detection_power`**: the docstring and the README now say that, without `resample_reference`, the A/A point and
+  the other rates are conditional on the given reference and that their Wilson interval, which assumes independent
+  repetitions, is too narrow for the test in general (0.21 against 0.05 in IM-01).
+
+### Compatibility
+
+- Default behaviour unchanged for `detection_power` (same draws, same rates; one new key `reference`) and for the
+  fairness disclosure (`small_groups="suppress"`).
+- **With `cluster=`, small groups give different intervals**: score intervals on effective counts instead of the
+  cluster bootstrap, and `small_group_size` now counts units (not rows) with `cluster`, so a group of many rows from few
+  units gets score intervals too. Expect wider intervals and more "inconclusive" verdicts for small clustered groups.
+  `interval="bootstrap"` gives the 0.16 behaviour. Weighted data (`weights=`, composition tables) is unchanged.
+- Inconclusive clustered groups report the size needed in "effective rows" (rows / design effect).
+- `importance_by_group` (explanations) keeps suppression only: `small_groups="merge"` applies to `FairnessAnalyzer`.
+
 ## [0.16.0] - 2026-11-05
 
 ### Added

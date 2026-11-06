@@ -413,6 +413,7 @@ def detection_power(
     alpha: float = 0.05,
     reps: int = 20,
     seed: Optional[int] = 0,
+    resample_reference: bool = False,
 ) -> list:
     """Share of windows in which `test` detects a change, by share of changed texts and window size (simulation)
 
@@ -430,13 +431,30 @@ def detection_power(
         functools.partial to set options, e.g. partial(component_test, statistic="max_t")
     shares, sizes : sequences
         Grid of the simulation; share 0 measures the false alarm rate (A/A) of the same setting
+    resample_reference : bool, default False
+        False: every repetition tests its window against the same `reference`, and the windows are drawn from the
+        same `pool`. The repetitions are then not independent, and the rates (the A/A point included) are
+        **conditional on that reference**: a reference that happens to sit away from the pool gives an A/A rate far
+        from alpha, and the Wilson interval, which assumes independent repetitions, is too narrow for the rate of the
+        test in general (lab IM-01: 0.21 A/A false alarms on a fixed reference, 0.05 with independent repetitions).
+        Keep it to measure the power of the reference actually used in production.
+        True: each repetition draws a new reference of len(reference) rows from `reference` and `pool` pooled, and
+        the unchanged part of the window from the rows left, so reference and window never share a row; the draws
+        follow `seed`. The rates are then those of the test for a reference like this one (unconditional), and the
+        A/A point estimates the false alarm rate of the test. This assumes `reference` and `pool` exchangeable (two
+        samples of the same period or process); the window size is limited to len(pool) unchanged rows, as without.
 
-    Returns one dict per (share, size): detection rate, Wilson 95 % interval, reps. The smallest share whose rate
-    reaches 0.8 at a size is the minimal detectable change at that window size, for that encoder and that test.
+    Returns one dict per (share, size): detection rate, Wilson 95 % interval, reps, and "reference" ("fixed" or
+    "resampled"). The smallest share whose rate reaches 0.8 at a size is the minimal detectable change at that window
+    size, for that encoder and that test.
     """
     test = test or mmd_test
     rng = np.random.default_rng(seed)
     pool, changed = np.asarray(pool, dtype=float), np.asarray(changed, dtype=float)
+    if resample_reference:
+        reference = np.asarray(reference, dtype=float)
+        unchanged = np.vstack([reference, pool])
+        n_reference = len(reference)
     out = []
     for size in sizes:
         for share in shares:
@@ -445,13 +463,16 @@ def detection_power(
                 raise error_msg(value=size, message="pool or changed too small for this window size")
             hits = 0
             for _ in range(reps):
-                window = np.vstack(
-                    [
-                        pool[rng.choice(len(pool), size - n_changed, replace=False)],
-                        changed[rng.choice(len(changed), n_changed, replace=False)],
-                    ]
-                )
-                hits += int(test(reference, window).p_value < alpha)
+                if resample_reference:
+                    # one permutation of the unchanged rows: the first ones are the reference, the next ones the window
+                    order = rng.permutation(len(unchanged))
+                    rep_reference = unchanged[order[:n_reference]]
+                    kept = unchanged[order[n_reference : n_reference + size - n_changed]]
+                else:
+                    rep_reference = reference
+                    kept = pool[rng.choice(len(pool), size - n_changed, replace=False)]
+                window = np.vstack([kept, changed[rng.choice(len(changed), n_changed, replace=False)]])
+                hits += int(test(rep_reference, window).p_value < alpha)
             ci = stats.binomtest(hits, reps).proportion_ci(method="wilson")
             out.append(
                 {
@@ -461,6 +482,7 @@ def detection_power(
                     "ci_low": float(ci.low),
                     "ci_high": float(ci.high),
                     "reps": reps,
+                    "reference": "resampled" if resample_reference else "fixed",
                 }
             )
     return out

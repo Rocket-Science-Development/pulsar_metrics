@@ -25,6 +25,7 @@ from sklearn.metrics import (
     r2_score,
     recall_score,
     roc_auc_score,
+    root_mean_squared_error,
 )
 
 from .utils import (
@@ -86,6 +87,7 @@ class PerformanceMetricsFuncs(Enum):
 
     # Regression metrics
     mse = member(partial(mean_squared_error))
+    rmse = member(partial(root_mean_squared_error))
     mae = member(partial(mean_absolute_error))
     mape = member(partial(mean_absolute_percentage_error))
     r2 = member(partial(r2_score))

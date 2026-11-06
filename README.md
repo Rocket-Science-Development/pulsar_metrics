@@ -137,7 +137,7 @@ The verdict follows **one convention for every metric**:
 - **Distance metrics** (`DriftMetric`) and custom metrics: drift when the value **exceeds** the threshold
   (`upper_bound=True`, default), falls below it (`upper_bound=False`), or lies **outside** a `[min, max]` interval.
 - **Performance metrics**: the threshold is a **minimum** for accuracy, precision, recall, f1, auc, aucpr and r2, and a
-  **maximum** for error metrics (log_loss, brier, mse, mae, mape). Pass `upper_bound` to override.
+  **maximum** for error metrics (log_loss, brier, mse, rmse, mae, mape). Pass `upper_bound` to override.
 - **No threshold**: the value is computed and `drift_status` is `None`.
 - **NaN statistic**: no verdict. `drift_status` is `None` and `error` says so (comparing NaN with a threshold used to
   give `True` for distances and `False` for tests).
@@ -215,7 +215,7 @@ then counts as a drift. The change is real, but read it as "the feature started 
 | `accuracy`, `precision`, `recall`, `f1` | Classification | minimum | labels (`y_pred`) |
 | `auc`, `aucpr` | ROC AUC, average precision | minimum | scores or probabilities |
 | `log_loss`, `brier` | Probabilistic losses | maximum | probabilities |
-| `mse`, `mae`, `mape` | Regression errors (`mape` = mean absolute percentage error) | maximum | values |
+| `mse`, `rmse`, `mae`, `mape` | Regression errors (`rmse` = square root of `mse`, in the unit of the target; `mape` = mean absolute percentage error) | maximum | values |
 | `r2` | Coefficient of determination | minimum | values |
 
 Ground truth often arrives late or only for part of the traffic. Performance metrics are computed on the rows that
@@ -864,7 +864,7 @@ interval lies entirely outside the acceptable zone**.
   `None` = inconclusive (the interval straddles a bound, typically a small group).
 - **Intervals**: stratified bootstrap (each group resampled within itself; exact binomial replicates for 0/1
   decisions, vectorized); with several groups, a **simultaneous** max-t band so that the confidence level holds for
-  all groups at once. Groups under `small_group_size` (200) rows get **score intervals** on the rate criteria
+  all groups at once. Groups under `small_group_size` (200) rows (units with `cluster`) get **score intervals** on the rate criteria
   (`interval="auto"`: Wilson combined by Newcombe for differences, MOVER on the log scale for the ratio), which
   keep their level
   where the percentile bootstrap does not; `interval="bootstrap"` restores the former behaviour.
@@ -879,6 +879,31 @@ interval lies entirely outside the acceptable zone**.
   when only the reference is left. With three groups and one small, the middle group loses its result: that is the
   price of not disclosing the small one (lab FA-02). Turn it off only for a report that stays with people allowed to
   see the data.
+- **Merging instead of suppressing** (`FairnessPolicy(small_groups="merge")`, default `"suppress"`): with three
+  groups and one tiny (`sex`: Female, Male and a few Unknown/Invalid rows), complementary suppression leaves no result
+  at all. In merge mode each group under `min_group_size` is merged, before any computation, with the smallest other
+  group that is not the reference (`sex=Male+Unknown/Invalid`), again until every non-reference group reaches the size
+  or a single one is left. The merge is made once per attribute on the whole data, so the attribute alone and every
+  intersection (`sex=Male+Unknown/Invalid|age=...`) use the same groups and the members of a merge are never published
+  apart, at any depth; complementary suppression then applies to what is left. The reference is never absorbed (a
+  small group whose only other group is the reference is suppressed) and stays the one chosen before merging. `method`
+  names the merged groups and `FairnessAnalyzer.merged_groups` lists them; a merged group is judged as one group and
+  says nothing about each member (declare it by its merged label). The tests check, by the rank of the linear system
+  of everything published (sizes and coverage, at every depth), that no size of a member of a merge, alone or crossed,
+  nor of a suppressed cell, can be computed.
+- **Several rows per person** (stays of one patient): rows are independent by default. Pass `id_column="patient_id"`
+  to have it checked: when the id repeats and `cluster` is not set, a `UserWarning` is raised and `method` says that
+  the rows of one id are treated as independent (the id is never guessed from column names). With
+  `cluster="patient_id"`, `n` and `min_group_size` count patients, large groups get the cluster bootstrap, and groups
+  under `small_group_size` **patients** keep score intervals on the rate criteria, computed on **effective counts**
+  (rows and positives divided by the design effect of the group). The design effect is the larger of the group's own
+  Rao-Scott design effect (cluster-robust variance of the rate over the binomial one) and Kish's `1 + (m - 1) rho`, with
+  `m` the size-weighted mean stays per patient of the group and `rho` the intra-patient correlation estimated over all
+  the groups of the feature (stable when a group has few patients); it is bounded by 1 (never narrower than
+  independent rows: one row per patient gives the interval of independent rows exactly) and by `m` (identical stays).
+  `method` gives both design effects and `rho`. Until 0.16 these small groups switched to the cluster bootstrap, less
+  prudent with few patients (lab FA-02: the age group [0-10) went from "inconclusive" to "established"). Weighted data
+  keeps the cluster bootstrap.
 - **Intersections**: `intersections=True` also evaluates combinations of attributes (`sex=F|region=North`), up to
   `max_intersection_depth` attributes (default 2; `None` for all of them, `max_cells` to cap the number of cells).
   Combinations without any publishable cell are skipped with a warning.
@@ -1150,7 +1175,7 @@ is given.
 | `embedding_drift` / `mmd_test` | Has the **content** of the requests (or answers, or retrieved passages) changed, beyond what lengths and tools show? | MMD between the embeddings of two windows, Gaussian mixture kernel (0.5 to 4 times the median distance, or a fixed `bandwidth`), PCA fitted on both windows pooled, permutation p-value |
 | `component_test` (`embedding_drift(test="component")`) | Has the **mix** of texts moved along a few directions (more positive reviews, more questions of one kind)? | Shift of the mean PCA components: Hotelling statistic with a ridge (`statistic="hotelling"`), or largest Welch t over the components (`"max_t"`, which names the component); permutation p-value |
 | `novelty_test` (`embedding_drift(test="novelty")`) | Has a **small share of texts unlike the reference** appeared (another language, spam, an injection campaign)? | Distance of each text to its k nearest reference texts, threshold from a held-out part of the reference; share of novel texts against the expected share, permutation p-value; indices of the novel texts returned |
-| `detection_power` | Which change can a test see at a given window size? | Simulation on your own embeddings: detection rate by share of changed texts and window size, with the A/A false alarm rate |
+| `detection_power` | Which change can a test see at a given window size? | Simulation on your own embeddings: detection rate by share of changed texts and window size, with the A/A false alarm rate. By default every repetition reuses the given reference: the rates, the A/A point included, are **conditional on that reference** and their Wilson interval does not cover the variation between references. `resample_reference=True` draws a new reference at each repetition (from `reference` and `pool` pooled, disjoint from the window, following `seed`) for the rate of the test itself |
 | `model_equality` / `model_equality_test` | Is the endpoint still serving the **same model** (not a quantized version, another model, a new system prompt)? | Answers to a fixed canary set, sampled several times; MMD with a Hamming kernel within prompts (Gao et al., ICLR 2025); permutation p-value within prompts. `model_equality_power` measures the detection rate by canary size on a pilot; `min_answers` turns a non-significant result on a small canary into "inconclusive" |
 | `consistency` / `consistency_drift` | Does the system give the **same answer to the same question** asked several times (and in other words)? | Per-question pairwise agreement from `ConsistencyProbe` (pulsar-data-collection); window mean and share of questions in full agreement with bootstrap intervals over the questions; one-sided permutation test of a drop against a reference (paired on shared questions) |
 | `ComplianceMonitor` | Does every run respect the **behavioural rules** of the agent? | Rules in linear temporal logic on finite traces (LTLf) or Declare templates (`precedence`, `response`, `absence`, `allowed_tools`...), versioned in YAML with a `severity` (info, minor, major, critical); per run, the violated rules (`violations`), the alert of the critical ones (`alerts`) and the fields to store with the run (`run_record`); per rule, the compliance rate with a Wilson interval, in absolute terms or against a reference period |
@@ -1269,7 +1294,7 @@ median below `min_repeats` answers per question (default 3) gives `status="few_r
 name; a window with no usable question is `not_evaluable`. The questions are the units of the bootstrap and of the
 permutations: the answers to one question are not independent.
 
-#### Known limits (night lab, TX-02, IM-02, LM-01, LI-03, LS-01 and LR-03)
+#### Known limits (night lab, TX-02, IM-01, IM-02, LM-01, LI-03, LS-01 and LR-03)
 
 | Limit | Lab figure | What the code does now |
 |---|---|---|
@@ -1278,6 +1303,7 @@ permutations: the answers to one question are not independent.
 | The encoder and the PCA matter | power by PCA components (none / 8 / 32 / 128): 0.05 / 0.50 / 0.55 / 0.20; nomic-embed-text 0.25 (polarity) and 0.90 (5 % English) | `n_components` (32) and `bandwidth` are exposed; measure with `detection_power` before choosing |
 | Cost of `mmd_test` at the default cap | 1000 x 1000 texts, 500 permutations: 11 to 18 s | vectorized permutations and eigendecomposition PCA: 0.7 s |
 | Correlated rows of one unit break the permutation test | passages retrieved by a RAG agent (2 per run, top 2 of the same query) permuted as independent rows: 41 to 43 % A/A false alarms on windows of 100 runs (LR-03 replay, 2,000 draws) | `mmd_test(..., groups=(reference_groups, current_groups))` (also through `embedding_drift`) permutes and subsamples whole groups: 5.0 % [4.3, 5.8] on 3,000 draws. One row per run (its top passage) holds the level too. Without `groups`, results are unchanged |
+| The A/A point of `detection_power` rests on one reference | one reference and one pool reused by every repetition: 0.21 A/A false alarms, against 0.05 on independent repetitions (IM-01); the Wilson interval assumes independent repetitions and is too narrow | `detection_power(..., resample_reference=True)` draws a new reference, disjoint from the window, at each repetition (reproducible with `seed`); on i.i.d. data its A/A rate falls back near alpha (test: 0.045 against 0.415 for an unlucky fixed reference). The default is unchanged and its rows now say `"reference": "fixed"` |
 | MMD on pixels needs large image windows | 3 corruptions of 15 need more than 50 images for 80 % power; 7 of 15 missed at 20 images | `detection_power` sizes the window on your own images; an image encoder (embeddings instead of pixels) is the stronger lever and is left to the user |
 | A change of quantization is missed by the default canary | llama3.2 3B q4_K_M vs q8_0: detected 20 % at 12 prompts x 5 answers, 40 % at 24 x 5, 60 % at 48 x 5, 100 % at 48 x 10 (5 runs per cell; the 480 figure has a 95 % lower bound near 0.5) | `RECOMMENDED_CANARY` (48 x 10), `model_equality_power` on a pilot, `min_answers=480` for an explicit "inconclusive"; the default canary size of the probe lives in pulsar-data-collection |
 | Rules violated at a stable rate alert in every window | auth-before-file 9 windows of 10 (6.0 % against 7.2 % in the reference), amount-after-eligibility 10 of 10 (29.7 % against 28.9 %) | `evaluate(reference=...)` |
