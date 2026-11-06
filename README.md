@@ -137,7 +137,7 @@ The verdict follows **one convention for every metric**:
 - **Distance metrics** (`DriftMetric`) and custom metrics: drift when the value **exceeds** the threshold
   (`upper_bound=True`, default), falls below it (`upper_bound=False`), or lies **outside** a `[min, max]` interval.
 - **Performance metrics**: the threshold is a **minimum** for accuracy, precision, recall, f1, auc, aucpr and r2, and a
-  **maximum** for error metrics (log_loss, brier, mse, mae, mape). Pass `upper_bound` to override.
+  **maximum** for error metrics (log_loss, brier, mse, rmse, mae, mape). Pass `upper_bound` to override.
 - **No threshold**: the value is computed and `drift_status` is `None`.
 - **NaN statistic**: no verdict. `drift_status` is `None` and `error` says so (comparing NaN with a threshold used to
   give `True` for distances and `False` for tests).
@@ -215,7 +215,7 @@ then counts as a drift. The change is real, but read it as "the feature started 
 | `accuracy`, `precision`, `recall`, `f1` | Classification | minimum | labels (`y_pred`) |
 | `auc`, `aucpr` | ROC AUC, average precision | minimum | scores or probabilities |
 | `log_loss`, `brier` | Probabilistic losses | maximum | probabilities |
-| `mse`, `mae`, `mape` | Regression errors (`mape` = mean absolute percentage error) | maximum | values |
+| `mse`, `rmse`, `mae`, `mape` | Regression errors (`rmse` = square root of `mse`, in the unit of the target; `mape` = mean absolute percentage error) | maximum | values |
 | `r2` | Coefficient of determination | minimum | values |
 
 Ground truth often arrives late or only for part of the traffic. Performance metrics are computed on the rows that

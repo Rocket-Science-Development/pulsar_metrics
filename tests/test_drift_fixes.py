@@ -156,3 +156,37 @@ def test_mape_is_the_mean_absolute_percentage_error():
     result = metric.evaluate(current=data, threshold=0.5)
     assert result.metric_value == pytest.approx(mean_absolute_percentage_error(data["y_true"], data["y_pred"]))
     assert result.metric_value == pytest.approx((0.1 + 0.1 + 0.0) / 3)
+
+
+# RMSE (lab TR-01: a threshold stated as an RMSE had to be squared into an mse)
+# ==============================
+
+
+def test_rmse_is_the_square_root_of_the_mse():
+    data = pd.DataFrame({"y_true": [1.0, 2.0, 3.0, 4.0], "y_pred": [1.5, 2.0, 2.0, 4.5]})
+    rmse = PerformanceMetric(metric_name="rmse").evaluate(current=data)
+    mse = PerformanceMetric(metric_name="mse").evaluate(current=data)
+    assert rmse.metric_value == pytest.approx(np.sqrt(mse.metric_value))
+    assert rmse.metric_value == pytest.approx(np.sqrt((0.25 + 0.0 + 1.0 + 0.25) / 4))
+
+
+@pytest.mark.parametrize("threshold, expected_drift", [(0.60, True), (0.65, False)])
+def test_rmse_threshold_is_a_maximum(threshold, expected_drift):
+    # RMSE = sqrt(1.5 / 4) = 0.612: above 0.60 is a breach, below 0.65 is not
+    data = pd.DataFrame({"y_true": [1.0, 2.0, 3.0, 4.0], "y_pred": [1.5, 2.0, 2.0, 4.5]})
+    result = PerformanceMetric(metric_name="rmse").evaluate(current=data, threshold=threshold)
+    assert result.drift_status is expected_drift
+
+
+def test_rmse_is_accepted_by_the_analyzer_and_exported_as_a_maximum():
+    from pulsar_metrics.analyzers.base import Analyzer
+    from pulsar_metrics.evidence import to_evidence
+
+    analyzer = Analyzer(name="reg", model_id="m", model_version="1")
+    analyzer.add_performance_metrics(["rmse"])
+    data = pd.DataFrame({"y_true": [1.0, 2.0, 3.0, 4.0], "y_pred": [1.5, 2.0, 2.0, 4.5]})
+    result = PerformanceMetric(metric_name="rmse").evaluate(current=data, threshold=0.60)
+    record = to_evidence(result, "lab", window={"id": "w1"})[0]
+    assert record.metric.name == "rmse"
+    assert record.metric.direction == "upper"
+    assert record.metric.status == "alert"
