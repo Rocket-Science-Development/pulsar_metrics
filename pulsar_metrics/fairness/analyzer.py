@@ -22,6 +22,7 @@ _RATES = {
     "false_positive_rate_difference": (0, "difference"),  # rate among the rows with y_true == 0
 }
 _INTERVALS = ("auto", "bootstrap", "score")
+_SMALL_GROUPS = ("suppress", "merge")
 MISSING = "<missing>"  # value of a protected attribute that is missing (NaN, None): a group of its own
 
 
@@ -51,6 +52,16 @@ class FairnessPolicy:
         counts (default True; lab FA-02, see `pulsar_metrics.fairness.disclosure`). With 3 groups and one small, the
         middle group loses its result. Turn it off only for a report that never leaves the people allowed to see the
         data
+    small_groups : str, optional
+        "suppress" (default): groups under `min_group_size` are suppressed, then complementary suppression applies.
+        "merge": before any computation, each group of an attribute under `min_group_size` is merged with the smallest
+        other group that is not the reference (e.g. "sex=Male+Unknown/Invalid"), again until every group other than
+        the reference reaches the size or a single one is left. The merge is made once per attribute on the whole data,
+        so the attribute alone and every intersection use the same merged groups and the members of a merge are never
+        published apart, at any depth; the reference is never absorbed (a small group whose only other group is the
+        reference stays small and is suppressed). Complementary suppression then applies to what is left (e.g. small
+        intersection cells). `method` names the merged groups; `FairnessAnalyzer.merged_groups` lists them. A merged
+        group is judged as one group: it says nothing about each member, and a declared group must use the merged label
     confidence : float, optional
         Confidence level of the intervals (default 0.95)
     n_bootstrap : int, optional
@@ -64,9 +75,11 @@ class FairnessPolicy:
         "auto" (default): score intervals (Wilson combined by Newcombe for differences, MOVER on the log scale for the ratio) for
         groups under `small_group_size` rows on the rate criteria, the bootstrap otherwise; "bootstrap": always the
         bootstrap (the behaviour of 0.10 and before, anti-conservative for small groups); "score": score intervals for every
-        group on the rate criteria. Equalized odds, calibration and error rate always use the bootstrap.
+        group on the rate criteria. Equalized odds, calibration and error rate always use the bootstrap. With
+        `FairnessAnalyzer(cluster=...)` and no weights, the score intervals are computed on effective counts (rows and
+        positives divided by the design effect of the group, see `FairnessAnalyzer`), so small groups keep them.
     small_group_size : int, optional
-        Rows under which "auto" uses score intervals (default 200)
+        Rows (units with `cluster`) under which "auto" uses score intervals (default 200)
     equivalence_confidence : float, optional
         Confidence level of the interval used to conclude "within the zone" (default: `confidence`). With 0.90, the
         "within" verdict is a TOST at 5 % per side, the usual equivalence test, while a disparity is still established
@@ -80,6 +93,7 @@ class FairnessPolicy:
     acceptable: dict = field(default_factory=dict)
     min_group_size: int = 30
     complementary_suppression: bool = True
+    small_groups: str = "suppress"
     confidence: float = 0.95
     n_bootstrap: int = 500
     simultaneous: bool = True
@@ -98,6 +112,8 @@ class FairnessPolicy:
             raise error_msg(value=None, message="min_group_size >= 1 and 0.5 < confidence < 1 are required")
         if self.interval not in _INTERVALS:
             raise error_msg(value=self.interval, message=f"interval must be one of {_INTERVALS}")
+        if self.small_groups not in _SMALL_GROUPS:
+            raise error_msg(value=self.small_groups, message=f"small_groups must be one of {_SMALL_GROUPS}")
         if self.equivalence_confidence is not None and not 0.5 < self.equivalence_confidence < 1:
             raise error_msg(value=self.equivalence_confidence, message="0.5 < equivalence_confidence < 1 is required")
 
@@ -145,6 +161,19 @@ class FairnessAnalyzer:
         one has. Without it, rows are resampled as independent observations: rows that are copies of an aggregate
         unit (pseudo-individuals) then give intervals that shrink as 1/sqrt(copies) and verdicts that depend on that
         arbitrary choice (lab FA-03), which is why a warning is raised when most rows repeat each other exactly.
+        On the rate criteria, groups under `small_group_size` units keep score intervals (Wilson / Newcombe / MOVER)
+        computed on effective counts: rows and positives of the group divided by its design effect, the larger of
+        (a) the group's own Rao-Scott design effect (cluster-robust variance of the rate over the variance of the same
+        estimator with rows as units) and (b) Kish's 1 + (m - 1) * rho, with m the size-weighted mean number of rows per
+        unit of the group and rho the intra-unit correlation estimated over all the groups of the feature; bounded below
+        by 1 (never narrower than with independent rows) and above by m (every row of a unit identical). A group whose
+        units all have a single row keeps the interval of independent rows exactly. A unit present in the group and in
+        the reference makes the two rates positively correlated; the score interval ignores it, which widens the
+        interval of the difference (conservative). Weighted data keeps the cluster bootstrap.
+    id_column : str, optional
+        Column of a pseudonymous identifier of the person (or unit) a row belongs to, used only to check the design:
+        when it repeats (several stays of one patient) and `cluster` is not set, a `UserWarning` is raised and `method`
+        says that the rows of one id are treated as independent. The identifier is never guessed from column names.
     unit : str, optional
         What a row (or a cluster) is, used in the results (e.g. "community": "n counts community units")
     bins : dict, optional
@@ -188,6 +217,7 @@ class FairnessAnalyzer:
         unit: Optional[str] = None,
         bins: Optional[dict] = None,
         numeric_levels: int = 20,
+        id_column: Optional[str] = None,
     ):
         if not attributes:
             raise error_msg(value=None, message="at least one protected attribute is required")
@@ -207,10 +237,12 @@ class FairnessAnalyzer:
         self.seed = seed
         self.weights = weights
         self.cluster = cluster
+        self.id_column = id_column
         self.unit = unit
         self.bins = dict(bins or {})
         self.numeric_levels = numeric_levels
         self.bin_edges: dict = {}
+        self.merged_groups: dict = {}  # small_groups="merge": {attribute: {merged value: [original values]}}
         self._results: list[MetricResults] = []
         self._coverage: list[MetricResults] = []
         self._reset_design()
@@ -243,11 +275,12 @@ class FairnessAnalyzer:
                 raise error_msg(value=None, message="`on` (pseudonymous id column) is required with attributes_data")
             data, factor = self._join(data, attributes_data, on, share or count, share is not None)
         missing = [c for c in [self.columns["y_pred"], *self.attributes] if c not in data.columns]
-        missing += [c for c in (self.weights, self.cluster) if c is not None and c not in data.columns]
+        missing += [c for c in (self.weights, self.cluster, self.id_column) if c is not None and c not in data.columns]
         if missing:
             raise error_msg(value=missing, message=f"missing columns {missing}")
         data = self._bin(data.reset_index(drop=True))
         self._design(data, factor, on)
+        data = self._merge_small_groups(data)
         self._results, self._coverage = [], []
         rng = np.random.default_rng(self.seed)
         cells = 0
@@ -287,6 +320,9 @@ class FairnessAnalyzer:
         self._unit_name = self.unit or self.cluster
         self._ecological = False
         self._numeric = {}  # numeric attributes left unbinned: attribute -> distinct values
+        self._repeated_ids = None  # (ids repeated, rows involved) when id_column repeats without cluster
+        self._merge_reference = {}  # small_groups="merge": reference value of each attribute, fixed before merging
+        self._icc = 0.0  # intra-unit correlation of the current rate criterion, over the groups of the feature
 
     def _join(self, data, attributes_data, on, column, is_share) -> tuple:
         """In-memory join with the attributes; with a composition column, (merged frame, weight factor per row)"""
@@ -378,6 +414,18 @@ class FairnessAnalyzer:
             w = factor if w is None else w * factor
         self._w = w
         cluster = self.cluster or (on if self._ecological else None)
+        if self.id_column is not None and cluster is None:
+            ids = data[self.id_column]
+            repeated = ids.duplicated(keep=False) & ids.notna()
+            if repeated.any():
+                self._repeated_ids = (int(ids[repeated].nunique()), int(repeated.sum()))
+                warnings.warn(
+                    f"{self._repeated_ids[0]} values of {self.id_column} appear on several rows ({self._repeated_ids[1]} rows): "
+                    "the rows of one id (e.g. the stays of one patient) are treated as independent, so the intervals are "
+                    f"too narrow; pass cluster='{self.id_column}' so that units, not rows, are counted and resampled",
+                    UserWarning,
+                    stacklevel=3,
+                )
         if cluster is not None:
             codes, uniques = pd.factorize(data[cluster], use_na_sentinel=False)
             self._codes, self._n_clusters = codes.astype(np.int64), len(uniques)
@@ -407,12 +455,81 @@ class FairnessAnalyzer:
             notes.append("weighted rates" + (f" ({self.weights})" if self.weights else "") + ", no score interval")
         if self._unit_name:
             notes.append(f"n counts {self._unit_name} units")
+        if self._repeated_ids:
+            notes.append(
+                f"{self._repeated_ids[0]} {self.id_column} values repeat over {self._repeated_ids[1]} rows, treated as "
+                "independent rows (no cluster=)"
+            )
+        notes += self._merge_notes(attrs)
         if self._ecological:
             notes.append("ecological: groups from the composition of each unit (aggregate attributes), not individual membership")
         for a in attrs:
             if a in self.bin_edges:
                 notes.append(f"{a} binned, edges {[float(f'{e:.4g}') for e in self.bin_edges[a]]}")
         return "".join(f"; {n}" for n in notes)
+
+    def _merge_notes(self, attrs) -> list:
+        return [
+            f"{a}: '{label}' merges {' + '.join(repr(m) for m in members)} (small_groups='merge', groups under "
+            f"{self.policy.min_group_size} {self._unit_name + ' units' if self._unit_name else 'rows'})"
+            for a in attrs
+            for label, members in self.merged_groups.get(a, {}).items()
+        ]
+
+    @staticmethod
+    def _labels_of(values: pd.Series) -> pd.Series:
+        """Group value of each row as text, missing values forming the group MISSING"""
+        return values.astype(object).where(values.notna(), MISSING).astype(str)
+
+    def _merge_small_groups(self, data: pd.DataFrame) -> pd.DataFrame:
+        """small_groups="merge": merge, per attribute, each group under min_group_size with the smallest other
+        non-reference group, before any computation, so that the attribute and all its intersections see the same
+        merged groups"""
+        self.merged_groups = {}
+        if self.policy.small_groups != "merge":
+            return data
+        threshold = self.policy.min_group_size
+
+        def sizes_of(keys: pd.Series) -> tuple:
+            return self._sizes(keys, keys.reset_index(drop=True).groupby(keys.to_numpy()).indices)
+
+        for a in self.attributes:
+            original = self._labels_of(data[a])
+            sizes, mass = sizes_of(original)
+            wanted = self.reference_groups.get(a)
+            if wanted is None:
+                reference = mass.idxmax()
+            else:
+                reference = str(wanted)
+                if a in self.bin_edges and reference not in sizes.index:
+                    prefixed = [k for k in sizes.index if k.split(" ", 1)[0] == reference]
+                    reference = prefixed[0] if prefixed else reference
+            if reference in sizes.index and sizes[reference] >= threshold:
+                self._merge_reference[a] = reference
+            order = {k: i for i, k in enumerate(sorted(sizes.index, key=lambda k: (-sizes[k], str(k))))}
+            members = {k: [k] for k in sizes.index}
+            mapping = {k: k for k in sizes.index}
+            recoded = original
+            while True:
+                now, _ = sizes_of(recoded)  # units are counted again: one unit can sit in two merged groups
+                small = sorted((k for k in members if k != reference and now[k] < threshold), key=lambda k: (now[k], k))
+                if not small:
+                    break
+                target = small[0]
+                partners = sorted((k for k in members if k not in (target, reference)), key=lambda k: (now[k], k))
+                if not partners:
+                    break  # only the reference is left: never absorbed, the small group stays and is suppressed
+                merged = sorted(members.pop(target) + members.pop(partners[0]), key=lambda k: order[k])
+                label = "+".join(merged)
+                members[label] = merged
+                for k in merged:
+                    mapping[k] = label
+                recoded = original.map(mapping)
+            groups = {label: m for label, m in members.items() if len(m) > 1}
+            if groups:
+                self.merged_groups[a] = groups
+                data = data.assign(**{a: recoded.to_numpy()})
+        return data
 
     def _bootstrap_name(self) -> str:
         if self._codes is not None:
@@ -449,8 +566,7 @@ class FairnessAnalyzer:
         feature = "|".join(attrs)
 
         def column(a):  # missing values form their own group (pandas 3 keeps NaN through astype(str))
-            values = data[a]
-            return values.astype(object).where(values.notna(), MISSING).astype(str)
+            return self._labels_of(data[a])
 
         keys = column(attrs[0])
         for a in attrs[1:]:  # vectorized concatenation (a row-wise join is slow on large frames)
@@ -546,7 +662,8 @@ class FairnessAnalyzer:
                             "cannot be computed by difference"
                             if k in secondary
                             else f"suppressed: fewer than {self.policy.min_group_size} {unit}"
-                        ),
+                        )
+                        + "".join(f"; {n}" for n in self._merge_notes(attrs)),
                         test_type="fixed",
                         status=status_label,
                     )
@@ -589,6 +706,11 @@ class FairnessAnalyzer:
         )
         if needed is None:
             return "; inconclusive at any group size with this reference (the disparity sits near a bound of the zone)"
+        if group[4] is not None:
+            return (
+                f"; inconclusive: about {needed} effective rows of the group (rows / design effect) for an 80 % chance of "
+                "a verdict at the observed rates"
+            )
         return f"; inconclusive: about {needed} rows of the group for an 80 % chance of a verdict at the observed rates"
 
     def _reference(self, feature, attrs, sizes, kept, labels):
@@ -602,6 +724,8 @@ class FairnessAnalyzer:
                 )
             raise AllCellsSuppressed(value=feature, message=message)
         wanted = self.reference_groups.get(feature) or (self.reference_groups.get(attrs[0]) if len(attrs) == 1 else None)
+        if wanted is None and len(attrs) == 1:
+            wanted = self._merge_reference.get(attrs[0])  # fixed before merging: a merged group never takes its place
         if wanted is None:
             return sizes[kept].idxmax()
         if len(attrs) == 1 and attrs[0] in self.bin_edges and str(wanted) not in kept:
@@ -653,15 +777,81 @@ class FairnessAnalyzer:
         return values is not None and bool(np.isin(values, (0.0, 1.0)).all())
 
     def _counts(self, name: str, arrays: tuple):
-        """(successes, trials) of the rate behind a rate criterion, or None when the data is not binary"""
+        """(successes, trials) of the rate behind a rate criterion, or None when the data is not binary or weighted;
+        with units (cluster), effective counts: both divided by the design effect of the group (see `_effective`)"""
+        effective = self._effective(name, arrays)
+        return None if effective is None else effective[:2]
+
+    def _rate_rows(self, name: str, arrays: tuple):
+        """(decisions, unit codes or None) of the rows behind a rate criterion, None when not binary or weighted"""
         y_pred, y_true, _, weights, codes = arrays
-        if weights is not None or codes is not None:  # counts of independent rows only
+        if weights is not None:  # counts of unweighted rows only
             return None
         among, _ = _RATES[name]
         if not self._binary(y_pred) or (among is not None and not self._binary(y_true)):
             return None
         rows = np.ones(len(y_pred), dtype=bool) if among is None else y_true == among
-        return float(y_pred[rows].sum()), int(rows.sum())
+        return y_pred[rows], None if codes is None else codes[rows]
+
+    @staticmethod
+    def _unit_sums(y: np.ndarray, codes: np.ndarray) -> tuple:
+        """(positives, rows) of each unit present"""
+        _, inverse = np.unique(codes, return_inverse=True)
+        return np.bincount(inverse, weights=y), np.bincount(inverse).astype(float)
+
+    def _effective(self, name: str, arrays: tuple):
+        """(successes, trials, design effect) of a rate criterion, both counts divided by the design effect when rows
+        belong to units; None when the data is not binary or weighted
+
+        Design effect: max(Rao-Scott of the group, Kish 1 + (m - 1) * rho), bounded to [1, m], with m = sum n_i^2 / n the
+        size-weighted mean rows per unit of the group and rho the intra-unit correlation over the feature (`_pooled_icc`).
+        Rao-Scott: cluster-robust variance of the rate (u / (u - 1) * sum (y_i - p n_i)^2 / n^2, u units) over the same
+        estimator with rows as units (p (1 - p) / (n - 1)): exactly 1 when every unit has one row. When p is 0 or 1 the
+        group's own term cannot be estimated and the bound m is used (most prudent)."""
+        selected = self._rate_rows(name, arrays)
+        if selected is None:
+            return None
+        y, codes = selected
+        n = len(y)
+        if codes is None or n == 0:
+            return float(y.sum()), int(n), 1.0
+        positives, trials = self._unit_sums(y, codes)
+        units = len(trials)
+        mean_size = float((trials**2).sum() / n)
+        if units == n:
+            deff = 1.0
+        else:
+            p = float(y.mean())
+            if 0 < p < 1:
+                robust = units / (units - 1) * float(((positives - p * trials) ** 2).sum()) / n**2
+                own = robust / (p * (1 - p) / (n - 1))
+            else:
+                own = mean_size
+            deff = min(max(1.0, own, 1 + (mean_size - 1) * self._icc), mean_size)
+        return float(y.sum()) / deff, n / deff, deff
+
+    def _pooled_icc(self, name: str, groups: dict) -> float:
+        """Intra-unit correlation of the rate of `name` over the groups of the feature (0 without units): from the
+        ratio R of the within-group sum of squares of the unit totals to the binomial one, rho = (R - 1) / (m - 1), with
+        m the size-weighted mean rows per unit; bounded to [0, 1]"""
+        if self._codes is None or self._w is not None or name not in _RATES:
+            return 0.0
+        robust = binomial = squares = rows = 0.0
+        for arrays in groups.values():
+            selected = self._rate_rows(name, arrays)
+            if selected is None or len(selected[0]) == 0:
+                continue
+            y, codes = selected
+            positives, trials = self._unit_sums(y, codes)
+            p = float(y.mean())
+            robust += float(((positives - p * trials) ** 2).sum())
+            binomial += len(y) * p * (1 - p)
+            squares += float((trials**2).sum())
+            rows += len(y)
+        mean_size = squares / rows if rows else 1.0
+        if binomial == 0 or mean_size <= 1:
+            return 0.0
+        return float(min(max((robust / binomial - 1) / (mean_size - 1), 0.0), 1.0))
 
     def _binomial_rates(self, name: str, arrays: tuple, b: int, rng):
         """Bootstrap replicates of the group statistic(s) without resampling rows: for 0/1 data the row bootstrap of a
@@ -803,9 +993,12 @@ class FairnessAnalyzer:
         k_total = len(others)
 
         score_groups = []
+        self._icc = self._pooled_icc(name, groups)
         if name in _RATES and self.policy.interval != "bootstrap":
             for k in others:
-                small = len(groups[k][0]) < self.policy.small_group_size
+                codes = groups[k][4]
+                size = len(groups[k][0]) if codes is None else len(np.unique(codes))
+                small = size < self.policy.small_group_size
                 if self.policy.interval == "score" or small:
                     score_groups.append(k)
         intervals, equivalence, method = {}, {}, {}
@@ -822,6 +1015,12 @@ class FairnessAnalyzer:
             method[k] = f"Wilson score interval ({kind}), {level}" + (
                 f" (Bonferroni over {k_total} groups)" if simultaneous else ""
             )
+            if groups[k][4] is not None:
+                deff = self._effective(name, groups[k])[2], self._effective(name, groups[reference])[2]
+                method[k] += (
+                    f", on effective counts of {self._unit_name} units: rows / design effect {deff[0]:.2f} "
+                    f"(reference {deff[1]:.2f}; intra-unit correlation {self._icc:.3f})"
+                )
         boot = [k for k in others if k not in score_groups]
         if boot:
             draws = self._draws(name, groups, reference, boot, b, rng)

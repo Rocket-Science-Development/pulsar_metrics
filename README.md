@@ -864,7 +864,7 @@ interval lies entirely outside the acceptable zone**.
   `None` = inconclusive (the interval straddles a bound, typically a small group).
 - **Intervals**: stratified bootstrap (each group resampled within itself; exact binomial replicates for 0/1
   decisions, vectorized); with several groups, a **simultaneous** max-t band so that the confidence level holds for
-  all groups at once. Groups under `small_group_size` (200) rows get **score intervals** on the rate criteria
+  all groups at once. Groups under `small_group_size` (200) rows (units with `cluster`) get **score intervals** on the rate criteria
   (`interval="auto"`: Wilson combined by Newcombe for differences, MOVER on the log scale for the ratio), which
   keep their level
   where the percentile bootstrap does not; `interval="bootstrap"` restores the former behaviour.
@@ -879,6 +879,31 @@ interval lies entirely outside the acceptable zone**.
   when only the reference is left. With three groups and one small, the middle group loses its result: that is the
   price of not disclosing the small one (lab FA-02). Turn it off only for a report that stays with people allowed to
   see the data.
+- **Merging instead of suppressing** (`FairnessPolicy(small_groups="merge")`, default `"suppress"`): with three
+  groups and one tiny (`sex`: Female, Male and a few Unknown/Invalid rows), complementary suppression leaves no result
+  at all. In merge mode each group under `min_group_size` is merged, before any computation, with the smallest other
+  group that is not the reference (`sex=Male+Unknown/Invalid`), again until every non-reference group reaches the size
+  or a single one is left. The merge is made once per attribute on the whole data, so the attribute alone and every
+  intersection (`sex=Male+Unknown/Invalid|age=...`) use the same groups and the members of a merge are never published
+  apart, at any depth; complementary suppression then applies to what is left. The reference is never absorbed (a
+  small group whose only other group is the reference is suppressed) and stays the one chosen before merging. `method`
+  names the merged groups and `FairnessAnalyzer.merged_groups` lists them; a merged group is judged as one group and
+  says nothing about each member (declare it by its merged label). The tests check, by the rank of the linear system
+  of everything published (sizes and coverage, at every depth), that no size of a member of a merge, alone or crossed,
+  nor of a suppressed cell, can be computed.
+- **Several rows per person** (stays of one patient): rows are independent by default. Pass `id_column="patient_id"`
+  to have it checked: when the id repeats and `cluster` is not set, a `UserWarning` is raised and `method` says that
+  the rows of one id are treated as independent (the id is never guessed from column names). With
+  `cluster="patient_id"`, `n` and `min_group_size` count patients, large groups get the cluster bootstrap, and groups
+  under `small_group_size` **patients** keep score intervals on the rate criteria, computed on **effective counts**
+  (rows and positives divided by the design effect of the group). The design effect is the larger of the group's own
+  Rao-Scott design effect (cluster-robust variance of the rate over the binomial one) and Kish's `1 + (m - 1) rho`, with
+  `m` the size-weighted mean stays per patient of the group and `rho` the intra-patient correlation estimated over all
+  the groups of the feature (stable when a group has few patients); it is bounded by 1 (never narrower than
+  independent rows: one row per patient gives the interval of independent rows exactly) and by `m` (identical stays).
+  `method` gives both design effects and `rho`. Until 0.16 these small groups switched to the cluster bootstrap, less
+  prudent with few patients (lab FA-02: the age group [0-10) went from "inconclusive" to "established"). Weighted data
+  keeps the cluster bootstrap.
 - **Intersections**: `intersections=True` also evaluates combinations of attributes (`sex=F|region=North`), up to
   `max_intersection_depth` attributes (default 2; `None` for all of them, `max_cells` to cap the number of cells).
   Combinations without any publishable cell are skipped with a warning.
